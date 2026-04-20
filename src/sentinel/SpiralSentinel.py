@@ -540,7 +540,10 @@ def check_pool_health():
 # Global sync state - prevents notification spam during initial sync
 _blockchain_synced = False
 _last_sync_check = 0
-_SYNC_CHECK_INTERVAL = 60  # Check sync status every 60 seconds
+_SYNC_CHECK_INTERVAL = 30  # FIX 6: Check sync status every 30s (was 60s).
+                          # The 60s cache could hold a stale "not synced" state
+                          # and block non-block alerts for up to a full minute
+                          # after the node was actually ready.
 
 def is_blockchain_ready():
     """Check if blockchain is synced (with caching to reduce RPC calls)"""
@@ -637,6 +640,88 @@ def _atomic_json_save(filepath, data, indent=None):
             pass
         logger.error(f"Atomic JSON save failed for {filepath}: {e}")
         # Don't re-raise — file save failure should not crash the monitor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BLOCK ALERT RETRY QUEUE
+# When all notification channels fail for a block-found alert (e.g. Discord
+# rate-limit, transient network outage), the embed is persisted to disk and
+# retried on the next monitoring cycle instead of being silently dropped to a
+# log file nobody reads.
+# ─────────────────────────────────────────────────────────────────────────────
+BLOCK_ALERT_RETRY_FILE = DATA_DIR / "pending_block_alerts.json"
+
+
+def queue_block_alert_for_retry(embed: dict) -> None:
+    """Persist a failed block-found alert so it is retried next cycle."""
+    try:
+        existing = []
+        if BLOCK_ALERT_RETRY_FILE.exists():
+            try:
+                with open(BLOCK_ALERT_RETRY_FILE) as _f:
+                    existing = json.load(_f)
+            except (json.JSONDecodeError, IOError):
+                existing = []
+        existing.append({"embed": embed, "queued_at": time.time()})
+        _atomic_json_save(BLOCK_ALERT_RETRY_FILE, existing)
+        logger.warning(
+            f"Block alert queued for retry ({len(existing)} pending) — "
+            f"all channels failed at time of block find"
+        )
+    except Exception as _e:
+        logger.error(f"Failed to queue block alert for retry: {_e}")
+
+
+def retry_pending_block_alerts() -> int:
+    """
+    Retry block alerts that previously failed to send.
+    Called once per monitoring cycle near the top of the loop.
+    Returns number of alerts successfully sent.
+    """
+    if not BLOCK_ALERT_RETRY_FILE.exists():
+        return 0
+    try:
+        with open(BLOCK_ALERT_RETRY_FILE) as _f:
+            pending = json.load(_f)
+    except (json.JSONDecodeError, IOError):
+        BLOCK_ALERT_RETRY_FILE.unlink(missing_ok=True)
+        return 0
+
+    if not pending:
+        BLOCK_ALERT_RETRY_FILE.unlink(missing_ok=True)
+        return 0
+
+    still_pending = []
+    sent_count = 0
+    _now = time.time()
+
+    for item in pending:
+        age = _now - item.get("queued_at", 0)
+        if age > 86400:          # Drop alerts older than 24 hours
+            logger.warning(
+                f"Dropping expired block alert from retry queue "
+                f"(age {age/3600:.1f}h > 24h)"
+            )
+            continue
+        if send_notifications(item["embed"]):
+            logger.info(
+                f"Retried block alert sent successfully "
+                f"(was queued {age/60:.1f}m ago)"
+            )
+            sent_count += 1
+        else:
+            still_pending.append(item)
+
+    if still_pending:
+        _atomic_json_save(BLOCK_ALERT_RETRY_FILE, still_pending)
+        logger.warning(
+            f"Block alert retry: {len(still_pending)} still pending "
+            f"(will retry next cycle)"
+        )
+    else:
+        BLOCK_ALERT_RETRY_FILE.unlink(missing_ok=True)
+
+    return sent_count
+
 
 def set_maintenance_mode(minutes, reason="Scheduled maintenance"):
     """Enable maintenance mode for specified minutes."""
@@ -11034,7 +11119,16 @@ def send_discord(embed):
         logger.error("SECURITY: Failed to parse Discord webhook URL")
         return False
 
-    max_retries = 3
+    # FIX 3: Use more retries for block-found alerts — the most important notification.
+    # Discord rate-limits (429) are the primary cause of dropped block alerts;
+    # 5 retries with back-off gives up to ~30s of retry window.
+    _title_upper = embed.get("title", "").upper()
+    _is_block_alert = any(
+        kw in _title_upper
+        for kw in ("BLOCK CAPTURED", "BLOCK FOUND", "BLOCK RECOVERED",
+                   "POOL BLOCK", "AUX BLOCK", "SMART PORT BLOCK")
+    )
+    max_retries = 5 if _is_block_alert else 3
     backoff = 2  # seconds
 
     for attempt in range(max_retries):
@@ -12048,24 +12142,38 @@ def send_notifications(embed):
 
             fallback_msg = f"[NOTIFICATION FALLBACK] {title}: {desc}{fields_text}"
 
-            # Log to application log
-            logger.warning(fallback_msg)
+            # FIX 2: For block-found alerts, persist to retry queue so the
+            # notification is sent on the next cycle instead of being silently
+            # dropped to a log file.
+            _title_upper = title.upper()
+            _is_block_alert = any(
+                kw in _title_upper
+                for kw in ("BLOCK CAPTURED", "BLOCK FOUND", "BLOCK RECOVERED",
+                           "BLOCK DETECT", "POOL BLOCK", "AUX BLOCK",
+                           "SMART PORT BLOCK")
+            )
+            if _is_block_alert:
+                # queue_block_alert_for_retry is defined earlier in this module
+                queue_block_alert_for_retry(embed)
+            else:
+                # Non-block alerts: log locally as before
+                logger.warning(fallback_msg)
 
-            # Also write to dedicated fallback file (with size limit to prevent disk exhaustion)
-            try:
-                fallback_file = str(DATA_DIR / "fallback_notifications.log")
-                os.makedirs(os.path.dirname(fallback_file), exist_ok=True)
-                # Rotate if file exceeds 5MB
-                if os.path.exists(fallback_file) and os.path.getsize(fallback_file) > 5 * 1024 * 1024:
-                    rotated = fallback_file + ".1"
-                    if os.path.exists(rotated):
-                        os.remove(rotated)
-                    os.rename(fallback_file, rotated)
-                with open(fallback_file, "a") as f:
-                    timestamp = local_now().strftime("%Y-%m-%d %H:%M:%S")
-                    f.write(f"[{timestamp}] {fallback_msg}\n")
-            except Exception as e:
-                logger.error(f"Failed to write fallback notification: {e}")
+                # Also write to dedicated fallback file (with size limit to prevent disk exhaustion)
+                try:
+                    fallback_file = str(DATA_DIR / "fallback_notifications.log")
+                    os.makedirs(os.path.dirname(fallback_file), exist_ok=True)
+                    # Rotate if file exceeds 5MB
+                    if os.path.exists(fallback_file) and os.path.getsize(fallback_file) > 5 * 1024 * 1024:
+                        rotated = fallback_file + ".1"
+                        if os.path.exists(rotated):
+                            os.remove(rotated)
+                        os.rename(fallback_file, rotated)
+                    with open(fallback_file, "a") as f:
+                        timestamp = local_now().strftime("%Y-%m-%d %H:%M:%S")
+                        f.write(f"[{timestamp}] {fallback_msg}\n")
+                except Exception as e:
+                    logger.error(f"Failed to write fallback notification: {e}")
 
     return any_sent
 
@@ -19031,6 +19139,16 @@ def monitor_loop(state):
             now = local_now()
             in_startup_grace = (time.time() - startup_time) < STARTUP_GRACE_PERIOD
 
+            # FIX 5: Retry any block alerts that failed to send in a previous cycle.
+            # This runs every cycle so a block found during a brief Discord outage
+            # is sent as soon as connectivity is restored (typically within 2 minutes).
+            try:
+                _retried = retry_pending_block_alerts()
+                if _retried:
+                    logger.info(f"Block alert retry: {_retried} alert(s) sent successfully")
+            except Exception as _retry_err:
+                logger.debug(f"Block alert retry error (non-critical): {_retry_err}")
+
             # ═══════════════════════════════════════════════════════════════════════════════
             # HA BACKUP NODE OPTIMIZATION - Skip all polling on non-MASTER nodes
             # In Docker HA, BACKUP nodes run Sentinel but don't need to poll miners,
@@ -19945,10 +20063,18 @@ def monitor_loop(state):
             for block in pool_new_blocks:
                 worker = block.get("worker") or block["miner"]
                 block_hash_pool = block.get("hash", "")
-                # Skip if already alerted via miner-reported detection — check both worker
-                # name and block hash since CGMiner may report a different name than pool API
-                if worker in alerted_workers_this_cycle or (block_hash_pool and block_hash_pool in alerted_hashes_this_cycle):
-                    logger.debug(f"Pool block for {worker} already alerted via miner-reported detection")
+                # FIX 4: Only skip via hash dedup, NOT worker-name dedup.
+                # CGMiner-reported block detection uses a different worker identifier
+                # than the pool API source field (e.g. CGMiner says "q" but pool API
+                # says "BG-03"). Worker-name dedup was silently suppressing the pool-side
+                # alert whenever CGMiner happened to fire first, even for small miners
+                # (nmaxe, nerdqaxe, axeos) that don't reliably report found_blocks.
+                # Hash-based dedup is safe because the same block hash is unique.
+                if block_hash_pool and block_hash_pool in alerted_hashes_this_cycle:
+                    logger.debug(
+                        f"Pool block hash {block_hash_pool[:12]}… already alerted "
+                        f"(hash dedup), skipping"
+                    )
                     continue
 
                 state.pool_blocks_found += 1

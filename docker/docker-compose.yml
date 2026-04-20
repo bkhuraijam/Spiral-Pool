@@ -92,7 +92,7 @@ services:
   # DigiByte (DGB) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   digibyte:
-    profiles: ["dgb", "dgb-scrypt", "multi"]
+    profiles: ["dgb", "dgb-scrypt"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.digibyte
@@ -104,6 +104,7 @@ services:
     ports:
       - "12024:12024"   # P2P
       - "127.0.0.1:14022:14022"   # RPC — localhost only
+      - "127.0.0.1:28532:28532"   # ← add this
     environment:
       - RPC_USER=${DGB_RPC_USER:-spiraldgb}
       - RPC_PASSWORD=${DGB_RPC_PASSWORD:?DGB_RPC_PASSWORD must be set}
@@ -134,7 +135,7 @@ services:
   # Bitcoin (BTC) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   bitcoin:
-    profiles: ["btc", "multi"]
+    profiles: ["btc"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.bitcoin
@@ -146,6 +147,7 @@ services:
     ports:
       - "8333:8333"     # P2P
       - "127.0.0.1:8332:8332"     # RPC — localhost only
+      - "127.0.0.1:28332:28332"
     environment:
       - RPC_USER=${BTC_RPC_USER:-spiralbtc}
       - RPC_PASSWORD=${BTC_RPC_PASSWORD:?BTC_RPC_PASSWORD must be set}
@@ -166,16 +168,16 @@ services:
         hard: 65535
     healthcheck:
       # AUDIT FIX (CR-2): Read credentials from config file instead of CLI args
-      test: ["CMD", "bitcoin-cli", "-conf=/home/bitcoin/.bitcoin/bitcoin.conf", "getblockchaininfo"]
-      interval: 30s
+      test: ["CMD-SHELL", "digibyte-cli -conf=/home/digibyte/.digibyte/digibyte.conf getblockchaininfo | grep -q '\"initialblockdownload\": false'"]
+      interval: 60s
       timeout: 10s
-      retries: 5
+      retries: 2000
       start_period: 300s
 
   # Bitcoin Cash (BCH) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   bitcoincash:
-    profiles: ["bch", "multi"]
+    profiles: ["bch"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.bitcoincash
@@ -187,6 +189,7 @@ services:
     ports:
       - "8433:8433"     # P2P
       - "127.0.0.1:8432:8432"     # RPC — localhost only
+      - "127.0.0.1:28432:28432"
     environment:
       - RPC_USER=${BCH_RPC_USER:-spiralbch}
       - RPC_PASSWORD=${BCH_RPC_PASSWORD:?BCH_RPC_PASSWORD must be set}
@@ -216,7 +219,7 @@ services:
   # Bitcoin II (BC2) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   bitcoinii:
-    profiles: ["bc2", "multi"]
+    profiles: ["bc2"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.bitcoinii
@@ -257,7 +260,7 @@ services:
   # Namecoin (NMC) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   namecoin:
-    profiles: ["nmc", "multi"]
+    profiles: ["nmc"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.namecoin
@@ -298,7 +301,7 @@ services:
   # Myriadcoin (XMY) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   myriadcoin:
-    profiles: ["xmy", "multi"]
+    profiles: ["xmy"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.myriadcoin
@@ -340,7 +343,7 @@ services:
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   # NOTE: Fractal uses Bitcoin Core binaries aliased as fractald/fractal-cli
   fractalbitcoin:
-    profiles: ["fbtc", "multi"]
+    profiles: ["fbtc"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.fractalbitcoin
@@ -352,6 +355,7 @@ services:
     ports:
       - "8341:8341"     # P2P
       - "127.0.0.1:8340:8340"     # RPC — localhost only
+      - "127.0.0.1:28340:28340"
     environment:
       - RPC_USER=${FBTC_RPC_USER:-spiralfbtc}
       - RPC_PASSWORD=${FBTC_RPC_PASSWORD:?FBTC_RPC_PASSWORD must be set}
@@ -382,7 +386,7 @@ services:
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   # NOTE: QBX is a standalone SHA-256d coin with post-quantum (Dilithium) address support
   qbitx:
-    profiles: ["qbx", "multi"]
+    profiles: ["qbx"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.qbitx
@@ -425,7 +429,7 @@ services:
   # NOTE: SYS cannot be solo mined — it is always merge-mined with BTC.
   # The "sys" profile should only be used in combination with "btc".
   syscoin:
-    profiles: ["sys", "multi"]
+    profiles: ["sys"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.syscoin
@@ -470,7 +474,7 @@ services:
   # Litecoin (LTC) - Scrypt
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   litecoin:
-    profiles: ["ltc", "multi"]
+    profiles: ["ltc"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.litecoin
@@ -511,7 +515,7 @@ services:
   # Dogecoin (DOGE) - Scrypt
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   dogecoin:
-    profiles: ["doge", "multi"]
+    profiles: ["doge"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.dogecoin
@@ -552,7 +556,7 @@ services:
   # PepeCoin (PEP) - Scrypt
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   pepecoin:
-    profiles: ["pep", "multi"]
+    profiles: ["pep"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.pepecoin
@@ -593,7 +597,7 @@ services:
   # Catcoin (CAT) - Scrypt
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   catcoin:
-    profiles: ["cat", "multi"]
+    profiles: ["cat"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.catcoin
@@ -636,7 +640,7 @@ services:
   # ═══════════════════════════════════════════════════════════════════════════
   # NOTE: no-new-privileges NOT set - official postgres image uses gosu
   postgres:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     image: postgres:18-alpine
     container_name: spiralpool-postgres
     restart: unless-stopped
@@ -671,7 +675,7 @@ services:
   # SPIRAL STRATUM (POOL SERVER)
   # ═══════════════════════════════════════════════════════════════════════════
   stratum:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -682,40 +686,43 @@ services:
       - no-new-privileges:true
     networks:
       - spiralpool
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Stratum ports (V1 plain + V2 Noise + TLS)
       # NOTE: Port assignments are fixed per coin. Miners MUST specify the correct
       # port for their chosen coin. V2 uses Noise Protocol encryption (no certs needed).
       # V2 ports are only active when STRATUM_V2_ENABLED=true in .env.
       # SHA-256d Stratum ports (V1 / V2 / TLS)
-      - "3333:3333"     # DGB Stratum V1
-      - "3334:3334"     # DGB Stratum V2 (Noise)
-      - "3335:3335"     # DGB Stratum TLS
+      - "23333:3333"     # DGB Stratum V1
+      - "23334:3334"     # DGB Stratum V2 (Noise)
+      - "23335:3335"     # DGB Stratum TLS
       - "4333:4333"     # BTC Stratum V1
       - "4334:4334"     # BTC Stratum V2 (Noise)
       - "4335:4335"     # BTC Stratum TLS
       - "5333:5333"     # BCH Stratum V1
       - "5334:5334"     # BCH Stratum V2 (Noise)
       - "5335:5335"     # BCH Stratum TLS
+      - "16180:16180"   # Smart Multi Stratum V1
       - "6333:6333"     # BC2 Stratum V1
       - "6334:6334"     # BC2 Stratum V2 (Noise)
       - "6335:6335"     # BC2 Stratum TLS
       # Scrypt Stratum ports (V1 / V2 / TLS)
-      - "7333:7333"     # LTC Stratum V1
-      - "7334:7334"     # LTC Stratum V2 (Noise)
-      - "7335:7335"     # LTC Stratum TLS
-      - "8335:8335"     # DOGE Stratum V1
-      - "8337:8337"     # DOGE Stratum V2 (Noise)
-      - "8342:8342"     # DOGE Stratum TLS
-      - "3336:3336"     # DGB-SCRYPT Stratum V1
-      - "3337:3337"     # DGB-SCRYPT Stratum V2 (Noise)
-      - "3338:3338"     # DGB-SCRYPT Stratum TLS
-      - "10335:10335"   # PEP Stratum V1
-      - "10336:10336"   # PEP Stratum V2 (Noise)
-      - "10337:10337"   # PEP Stratum TLS
-      - "12335:12335"   # CAT Stratum V1
-      - "12336:12336"   # CAT Stratum V2 (Noise)
-      - "12337:12337"   # CAT Stratum TLS
+#      - "7333:7333"     # LTC Stratum V1
+ #     - "7334:7334"     # LTC Stratum V2 (Noise)
+  #    - "7335:7335"     # LTC Stratum TLS
+   #   - "8335:8335"     # DOGE Stratum V1
+    #  - "28337:8337"     # DOGE Stratum V2 (Noise)
+     # - "8342:8342"     # DOGE Stratum TLS
+#      - "23336:3336"     # DGB-SCRYPT Stratum V1
+ #     - "23337:3337"     # DGB-SCRYPT Stratum V2 (Noise)
+  #    - "23338:3338"     # DGB-SCRYPT Stratum TLS
+   #   - "10335:10335"   # PEP Stratum V1
+    #  - "10336:10336"   # PEP Stratum V2 (Noise)
+#      - "10337:10337"   # PEP Stratum TLS
+ #     - "12335:12335"   # CAT Stratum V1
+  #    - "12336:12336"   # CAT Stratum V2 (Noise)
+   #   - "12337:12337"   # CAT Stratum TLS
       # Merge-minable Stratum ports (V1 / V2 / TLS)
       - "14335:14335"   # NMC Stratum V1
       - "14336:14336"   # NMC Stratum V2 (Noise)
@@ -743,42 +750,42 @@ services:
       digibyte:
         condition: service_healthy
         required: false
-      bitcoin:
-        condition: service_healthy
-        required: false
-      bitcoincash:
-        condition: service_healthy
-        required: false
-      bitcoinii:
-        condition: service_healthy
-        required: false
-      namecoin:
-        condition: service_healthy
-        required: false
-      myriadcoin:
-        condition: service_healthy
-        required: false
-      fractalbitcoin:
-        condition: service_healthy
-        required: false
-      qbitx:
-        condition: service_healthy
-        required: false
-      syscoin:
-        condition: service_healthy
-        required: false
-      litecoin:
-        condition: service_healthy
-        required: false
-      dogecoin:
-        condition: service_healthy
-        required: false
-      pepecoin:
-        condition: service_healthy
-        required: false
-      catcoin:
-        condition: service_healthy
-        required: false
+      #bitcoin:
+       # condition: service_healthy
+        #required: false
+      #bitcoincash:
+       # condition: service_healthy
+        #required: false
+     # bitcoinii:
+      #  condition: service_healthy
+       # required: false
+     # namecoin:
+      #  condition: service_healthy
+       # required: false
+     # myriadcoin:
+      #  condition: service_healthy
+       # required: false
+     # fractalbitcoin:
+      #  condition: service_healthy
+       # required: false
+     # qbitx:
+      #  condition: service_healthy
+       # required: false
+     # syscoin:
+      #  condition: service_healthy
+       # required: false
+     # litecoin:
+      #  condition: service_healthy
+       # required: false
+     # dogecoin:
+      #  condition: service_healthy
+       # required: false
+     # pepecoin:
+      #  condition: service_healthy
+       # required: false
+    #  catcoin:
+     #   condition: service_healthy
+      #  required: false
     environment:
       # RPC credentials (SHA-256d coins) — coin-specific vars used by entrypoint auto-detection
       - DGB_RPC_USER=${DGB_RPC_USER:-spiraldgb}
@@ -861,11 +868,12 @@ services:
       - STRATUM_DIFF_MIN=${STRATUM_DIFF_MIN:-}
       - STRATUM_DIFF_MAX=${STRATUM_DIFF_MAX:-}
       - STRATUM_VARDIFF_TARGET_TIME=${STRATUM_VARDIFF_TARGET_TIME:-}
-      - STRATUM_USE_CONFIG_DIFFICULTY=${STRATUM_USE_CONFIG_DIFFICULTY:-true}
+      - STRATUM_USE_CONFIG_DIFFICULTY=false
       - STRATUM_VERSION_ROLLING=${STRATUM_VERSION_ROLLING:-}
       - STRATUM_VERSION_ROLLING_MASK=${STRATUM_VERSION_ROLLING_MASK:-}
       # Stratum V2 (Noise Protocol — opt-in, keys generated in memory)
       - STRATUM_V2_ENABLED=${STRATUM_V2_ENABLED:-false}
+      - STRATUM_USE_CONFIG_DIFFICULTY=false
       # Daemon connection — auto-detected by entrypoint from POOL_COIN + coin RPC vars.
       # Set these only to override auto-detection (e.g., remote daemon).
       - DAEMON_HOST=${DAEMON_HOST:-}
@@ -882,6 +890,8 @@ services:
       - shared-data:/spiralpool/data
       - ./config/config.docker.template:/spiralpool/config/config.docker.template:ro
       - ./tls:/spiralpool/tls:ro
+      - ./config:/spiralpool/config    # ← ADD THIS
+      - ./config/config.yaml:/spiralpool/config/config.yaml:ro  # ← add this
     deploy:
       resources:
         limits:
@@ -898,13 +908,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 1800s
 
   # ═══════════════════════════════════════════════════════════════════════════
   # SPIRAL DASHBOARD
   # ═══════════════════════════════════════════════════════════════════════════
   dashboard:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.dashboard
@@ -915,6 +925,8 @@ services:
       - no-new-privileges:true
     networks:
       - spiralpool
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "1618:1618"     # Dashboard UI
     depends_on:
@@ -923,6 +935,9 @@ services:
     environment:
       - POOL_API_URL=http://stratum:4000
       # Dashboard Authentication (v2.0.0)
+      - PROMETHEUS_URL=http://stratum:9100
+      - ALLOW_UNSAFE_WERKZEUG=true    # ← add this
+      - POOL_ID=dgb_sha256_1
       - DASHBOARD_AUTH_ENABLED=${DASHBOARD_AUTH_ENABLED:-true}
       - DASHBOARD_SESSION_LIFETIME=${DASHBOARD_SESSION_LIFETIME:-24}
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
@@ -932,6 +947,9 @@ services:
       - dashboard-config:/spiralpool/dashboard/data
       - dashboard-auth:/app/data
       - shared-data:/spiralpool/data
+      - ./config/dashboard_config.json:/spiralpool/dashboard/data/dashboard_config.json
+      - ./config/dashboard_config.json:/app/data/dashboard_config.json
+      - ./config:/spiralpool/config
     deploy:
       resources:
         limits:
@@ -950,7 +968,7 @@ services:
   # SPIRAL SENTINEL (MONITORING & ALERTS)
   # ═══════════════════════════════════════════════════════════════════════════
   sentinel:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.sentinel
@@ -1002,6 +1020,7 @@ services:
     volumes:
       - sentinel-config:/home/spiraluser/.spiralsentinel
       - shared-data:/spiralpool/data
+      - ./config/sentinel_config.json:/home/spiraluser/.spiralsentinel/config.json  # ← add this
     deploy:
       resources:
         limits:
@@ -1023,7 +1042,7 @@ services:
   # PROMETHEUS (METRICS COLLECTION)
   # ═══════════════════════════════════════════════════════════════════════════
   prometheus:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     image: prom/prometheus:v2.51.0
     container_name: spiralpool-prometheus
     restart: unless-stopped
@@ -1063,7 +1082,7 @@ services:
   # GRAFANA (DASHBOARDS & ALERTING)
   # ═══════════════════════════════════════════════════════════════════════════
   grafana:
-    profiles: ["dgb", "btc", "bch", "bc2", "nmc", "sys", "xmy", "fbtc", "qbx", "ltc", "doge", "dgb-scrypt", "pep", "cat", "multi"]
+    profiles: ["multi"]
     image: grafana/grafana-oss:10.4.2
     container_name: spiralpool-grafana
     restart: unless-stopped
@@ -1073,7 +1092,8 @@ services:
     networks:
       - spiralpool
     ports:
-      - "127.0.0.1:3000:3000"  # Localhost only — front with reverse proxy for external access
+#      - "127.0.0.1:3000:3000"  # Localhost only — front with reverse proxy for external access
+      - "3000:3000"
     depends_on:
       prometheus:
         condition: service_healthy
@@ -1086,7 +1106,7 @@ services:
       # Notification credentials (used by provisioned contact points)
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning/datasources/:/etc/grafana/provisioning/datasources/:ro

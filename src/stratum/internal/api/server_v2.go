@@ -577,44 +577,55 @@ func (s *ServerV2) handleConnectionsV2(w http.ResponseWriter, r *http.Request, p
 
 // handlePoolBlocks returns block history for a pool.
 func (s *ServerV2) handlePoolBlocks(w http.ResponseWriter, r *http.Request, poolID string, coinSymbol string) {
-	ctx := r.Context()
+        ctx := r.Context()
 
-	// Scope DB queries to this specific pool's tables
-	// BUG FIX: Use GetBlocksWithOrphans instead of GetBlocks.
-	// GetBlocks filters WHERE status IN ('pending', 'confirmed'), which hides
-	// orphaned blocks from the API. Sentinel's check_for_orphans() needs to see
-	// blocks that transitioned to "orphaned" status for orphan detection to work.
-	// Sentinel's check_pool_for_new_blocks() already skips non-pending/non-confirmed
-	// blocks (line 14394), so including orphaned blocks is safe for block detection.
-	scopedDB := s.db.WithPoolID(poolID)
-	blocks, err := scopedDB.GetBlocksWithOrphans(ctx)
-	if err != nil {
-		s.logger.Errorw("Failed to get blocks", "poolId", poolID, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+        // --- START PATCH ---
+        // Parse pageSize from query parameters (e.g., ?pageSize=1000)
+        // Default to 200, allow up to 5000 for high-performance monitoring
+        limit := 200
+        if val := r.URL.Query().Get("pageSize"); val != "" {
+                if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+                        limit = parsed
+                        if limit > 5000 {
+                                limit = 5000
+                        }
+                }
+        }
+        // --- END PATCH ---
 
-	response := make([]map[string]interface{}, 0, len(blocks))
-	for _, b := range blocks {
-		entry := map[string]interface{}{
-			"blockHeight":          b.Height,
-			"status":               b.Status,
-			"confirmationProgress": b.ConfirmationProgress,
-			"networkDifficulty":    b.NetworkDifficulty,
-			"effort":               b.Effort,
-			"miner":                b.Miner,
-			"reward":               b.Reward,
-			"hash":                 b.Hash,
-			"created":              b.Created,
-			"coin":                 coinSymbol,
-		}
-		if b.Source != "" {
-			entry["source"] = b.Source
-		}
-		response = append(response, entry)
-	}
+        // Scope DB queries to this specific pool's tables
+        // BUG FIX: Use GetBlocksWithOrphans instead of GetBlocks.
+        scopedDB := s.db.WithPoolID(poolID)
+        
+        // Pass the dynamic limit variable instead of the hardcoded 200
+        blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
+        if err != nil {
+                s.logger.Errorw("Failed to get blocks", "poolId", poolID, "error", err)
+                http.Error(w, "Internal server error", http.StatusInternalServerError)
+                return
+        }
 
-	s.writeJSON(w, response)
+        response := make([]map[string]interface{}, 0, len(blocks))
+        for _, b := range blocks {
+                entry := map[string]interface{}{
+                        "blockHeight":          b.Height,
+                        "status":               b.Status,
+                        "confirmationProgress": b.ConfirmationProgress,
+                        "networkDifficulty":    b.NetworkDifficulty,
+                        "effort":               b.Effort,
+                        "miner":                b.Miner,
+                        "reward":               b.Reward,
+                        "hash":                 b.Hash,
+                        "created":              b.Created,
+                        "coin":                 coinSymbol,
+                }
+                if b.Source != "" {
+                        entry["source"] = b.Source
+                }
+                response = append(response, entry)
+        }
+
+        s.writeJSON(w, response)
 }
 
 // handleHealth returns health status.

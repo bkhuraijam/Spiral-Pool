@@ -1,0 +1,109 @@
+{
+  "pool_api_url": "http://stratum:4000",
+  "prometheus_url": "http://stratum:9100/metrics",
+  "metrics_url": "http://stratum:9100/metrics",
+  "default_pool_id": "dgb_sha256_1",
+  "setup_complete": true,
+  "auth_enabled": false,
+  "coins": [
+    {
+      "symbol": "DGB",
+      "enabled": true,
+      "wallet_address": "DHcagsSAiyk4SbnQfMteYqArjz1bhGGR73"
+    }
+  ],
+  "dashboard_title": "Beni's Solo Pool",
+  "first_run": false,
+  "devices": {
+    "axeos": [],
+    "nmaxe": [],
+    "nerdqaxe": [
+      {
+        "name": "NerdQaxe",
+        "ip": "192.168.0.108"
+      }
+    ],
+    "qaxe": [],
+    "qaxeplus": [],
+    "luckyminer": [],
+    "jingleminer": [],
+    "zyber": [],
+    "esp32miner": [],
+    "avalon": [
+      {
+        "name": "Avalon_Miner_Kumo",
+        "ip": "192.168.0.102",
+        "port": 4028
+      }
+    ],
+    "antminer": [
+      {
+        "name": "Antminer_S19_KPro_5",
+        "ip": "192.168.0.5",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_6",
+        "ip": "192.168.0.6",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_8",
+        "ip": "192.168.0.8",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_7",
+        "ip": "192.168.0.7",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_KPro_12",
+        "ip": "192.168.0.12",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_11",
+        "ip": "192.168.0.11",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_9",
+        "ip": "192.168.0.9",
+        "port": 4028
+      },
+      {
+        "name": "Antminer_S19_10",
+        "ip": "192.168.0.10",
+        "port": 4028
+      }
+    ],
+    "antminer_scrypt": [],
+    "whatsminer": [],
+    "innosilicon": [],
+    "goldshell": [],
+    "hammer": [],
+    "futurebit": [],
+    "canaan": [],
+    "ebang": [],
+    "gekkoscience": [],
+    "ipollo": [],
+    "epic": [],
+    "elphapex": [],
+    "braiins": [],
+    "vnish": [],
+    "luxos": []
+  },
+  "refresh_interval": 30,
+  "theme": "cyberpunk",
+  "display_currency": "CAD",
+  "power_cost": {
+    "currency": "CAD",
+    "currency_symbol": "$",
+    "rate_per_kwh": 0.12,
+    "is_free_power": false
+  },
+  "pool_mode": "solo",
+  "multi_coin_enabled": false,
+  "expected_fleet_ths": 100
+}

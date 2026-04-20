@@ -653,73 +653,89 @@ func (s *Server) handlePoolStats(w http.ResponseWriter, r *http.Request, poolID 
 
 // handlePoolBlocks returns block history.
 func (s *Server) handlePoolBlocks(w http.ResponseWriter, r *http.Request, poolID string) {
-	ctx := r.Context()
-	db := s.getDB()
-	if db == nil {
-		http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	// Scope DB queries to this specific pool's tables
-	scopedDB := db.WithPoolID(poolID)
-	blocks, err := scopedDB.GetBlocksWithOrphans(ctx)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+        ctx := r.Context()
+        db := s.getDB()
+        if db == nil {
+                http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
+                return
+        }
 
-	response := make([]map[string]interface{}, 0, len(blocks))
-	for _, b := range blocks {
-		entry := map[string]interface{}{
-			"blockHeight":          b.Height,
-			"status":               b.Status,
-			"confirmationProgress": b.ConfirmationProgress,
-			"networkDifficulty":    b.NetworkDifficulty,
-			"effort":               b.Effort,
-			"miner":                b.Miner,
-			"reward":               b.Reward,
-			"hash":                 b.Hash,
-			"created":              b.Created,
-		}
-		if b.Source != "" {
-			entry["source"] = b.Source
-			entry["worker"] = b.Source
-		}
-		response = append(response, entry)
-	}
+        // --- START PATCH ---
+        // Parse pageSize from query parameters (e.g., ?pageSize=5000)
+        // Default to 100, allow up to 5000 for high-performance monitoring
+        limit := 100
+        if val := r.URL.Query().Get("pageSize"); val != "" {
+                if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+                        limit = parsed
+                        if limit > 5000 {
+                                limit = 5000
+                        }
+                }
+        }
+        // --- END PATCH ---
 
-	s.writeJSON(w, response)
+        // Scope DB queries to this specific pool's tables
+        scopedDB := db.WithPoolID(poolID)
+        // Pass the limit to the database query
+        blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
+        if err != nil {
+                http.Error(w, "Internal server error", http.StatusInternalServerError)
+                return
+        }
+
+        response := make([]map[string]interface{}, 0, len(blocks))
+        for _, b := range blocks {
+                entry := map[string]interface{}{
+                        "blockHeight":          b.Height,
+                        "status":               b.Status,
+                        "confirmationProgress": b.ConfirmationProgress,
+                        "networkDifficulty":    b.NetworkDifficulty,
+                        "effort":               b.Effort,
+                        "miner":                b.Miner,
+                        "reward":               b.Reward,
+                        "hash":                 b.Hash,
+                        "created":              b.Created,
+                }
+                if b.Source != "" {
+                        entry["source"] = b.Source
+                        entry["worker"] = b.Source
+                }
+                response = append(response, entry)
+        }
+
+        s.writeJSON(w, response)
 }
 
-// handlePoolMiners returns all active miners.
-func (s *Server) handlePoolMiners(w http.ResponseWriter, r *http.Request, poolID string) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+ // handlePoolMiners returns all active miners.
+ func (s *Server) handlePoolMiners(w http.ResponseWriter, r *http.Request, poolID string) {
+         if r.Method != http.MethodGet {
+                 http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+                 return
+         }
 
-	ctx := r.Context()
-	db := s.getDB()
-	if db == nil {
-		http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
-		return
-	}
+         ctx := r.Context()
+         db := s.getDB()
+         if db == nil {
+                 http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
+                 return
+         }
 
-	// Get miners who have submitted shares in the last 10 minutes
-	// This matches the hashrate calculation window
-	miners, err := db.GetActiveMiners(ctx, 10)
-	if err != nil {
-		s.logger.Errorw("Failed to get active miners", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+         // Get miners who have submitted shares in the last 10 minutes
+         // This matches the hashrate calculation window
+         miners, err := db.GetActiveMiners(ctx, 10)
+         if err != nil {
+                 s.logger.Errorw("Failed to get active miners", "error", err)
+                 http.Error(w, "Internal server error", http.StatusInternalServerError)
+                 return
+         }
 
-	// Return empty array instead of null if no miners
-	if miners == nil {
-		miners = []*database.MinerSummary{}
-	}
+         // Return empty array instead of null if no miners
+         if miners == nil {
+                 miners = []*database.MinerSummary{}
+         }
 
-	s.writeJSON(w, miners)
-}
+         s.writeJSON(w, miners)
+ }
 
 // handleMinerStats returns statistics for a specific miner.
 func (s *Server) handleMinerStats(w http.ResponseWriter, r *http.Request, poolID, address string) {

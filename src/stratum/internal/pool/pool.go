@@ -2284,6 +2284,7 @@ blockLogging:
 
 	block := &database.Block{
 		Height:            share.BlockHeight,
+			Effort:            share.Difficulty,
 		NetworkDifficulty: share.NetworkDiff,
 		Status:            blockStatus,
 		Type:              "block",
