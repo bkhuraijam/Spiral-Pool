@@ -1703,7 +1703,8 @@ def fetch_pool_stats():
             try:
                 blocks_response = requests.get(
                     f"{POOL_API_URL}/api/pools/{pid}/blocks",
-                    timeout=5
+                    params={'pageSize': 5000},
+                    timeout=10
                 )
                 if blocks_response.status_code == 200:
                     pool_blocks = blocks_response.json()
@@ -9336,6 +9337,21 @@ def change_password():
     app.logger.info(f"SECURITY: Admin password changed by {request.remote_addr}")
     return jsonify({"success": True, "message": "Password changed successfully"})
 
+def get_all_pool_blocks(pool_id):
+    """
+    Helper to fetch block history with the extended pageSize limit.
+    This bypasses the default 200-block cap in the Go backend.
+    """
+    host = os.getenv('POOL_API_URL', 'http://stratum:4000')
+    url = f"{host}/api/pools/{pool_id}/blocks?pageSize=5000"
+    try:
+        # Increase timeout slightly for larger datasets
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"[ERROR] Global block fetch failed: {e}")
+    return []
 
 # ─────────────────────────────────────────────
 # MAIN ROUTES
@@ -9347,65 +9363,57 @@ def service_worker():
     return send_from_directory(app.static_folder, 'service-worker.js',
                                mimetype='application/javascript')
 
-
 @app.route('/')
 @api_key_or_login_required
 def index():
+    # 1. Helper functions first
     def hash_to_difficulty(block_hash: str) -> float:
         try:
             if not block_hash or len(block_hash) < 64: return 0
             ba = bytearray.fromhex(block_hash); ba.reverse()
             hash_int = int(ba.hex(), 16)
             diff1_target = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-            # Scale to Millions to match Net Diff units
             return (diff1_target / (hash_int * 4294967296)) * 1000000
         except: return 0
 
+    # 2. LOAD CONFIG (The missing line causing your error)
     config = load_config()
     if config.get("first_run", True):
         return redirect(url_for('setup'))
 
-    host = os.getenv('POOL_API_URL', 'http://stratum:4000')
     p_id = os.getenv('POOL_ID', 'dgb_sha256_1')
-    
-    stats_url = f"{host}/api/pools/{p_id}"
-    blocks_url = f"{host}/api/pools/{p_id}/blocks?pageSize=5000"
 
+    # 3. Use your new centralized function
+    all_blocks = get_all_pool_blocks(p_id)
+
+    # 4. Fetch general stats
+    host = os.getenv('POOL_API_URL', 'http://stratum:4000')
     try:
-        s_resp = requests.get(stats_url, timeout=5)
+        s_resp = requests.get(f"{host}/api/pools/{p_id}", timeout=5)
         pool_stats = s_resp.json() if s_resp.status_code == 200 else {}
-        
-        b_resp = requests.get(blocks_url, timeout=5)
-        all_blocks = b_resp.json() if b_resp.status_code == 200 else []
-    except Exception as e:
-        print(f"[ERROR] API Request failed: {e}")
-        pool_stats = {}; all_blocks = []
+    except:
+        pool_stats = {}
 
+    # 5. Process blocks and apply manual counter override
     for block in all_blocks:
-        if not block.get('worker'): block['worker'] = block.get('source', '')
         actual_diff = hash_to_difficulty(block.get('hash', ''))
         block['minerDifficulty'] = actual_diff
         block['difficulty'] = actual_diff
-        
         net_diff = block.get('networkDifficulty', 0)
-        if actual_diff > 0 and net_diff > 0:
-            block['effort'] = net_diff / actual_diff
-        else:
-            block['effort'] = 0
+        block['effort'] = (net_diff / actual_diff) if actual_diff > 0 and net_diff > 0 else 0
 
-    # THE FIX FOR THE "200" COUNTER:
-    # We manually override the stats object with the actual count from our 5000-block fetch
     if pool_stats:
-        # If the template looks at stats.totalBlocks, we force it to 5000 (or actual len)
         pool_stats['totalBlocks'] = len(all_blocks)
         if 'poolStats' in pool_stats:
             pool_stats['poolStats']['totalBlocks'] = len(all_blocks)
 
-    return render_template('dashboard.html', 
+    # 6. Render with all required variables
+    return render_template('dashboard.html',
                            config=config,
-                           stats=pool_stats, 
-                           blocks=all_blocks, 
+                           stats=pool_stats,
+                           blocks=all_blocks,
                            block_count=len(all_blocks))
+
 
 @app.route('/setup')
 @api_key_or_login_required
