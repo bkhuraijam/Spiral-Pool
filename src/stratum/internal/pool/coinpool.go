@@ -129,6 +129,10 @@ type CoinPool struct {
 	cachedBlocksFound int64
 	blockStatsMu      sync.RWMutex
 
+        // Round difficulty tracking for effort calculation
+        currentRoundDifficulty float64
+        roundDiffMu           sync.Mutex
+
 	// Multi-port job listener: called when job manager produces a new job,
 	// allowing the multi-port server to relay block templates to its miners.
 	// Set via SetMultiPortJobListener; read inside the job callback closure.
@@ -901,6 +905,7 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
 		// CRITICAL: Check for block FIRST, before ANY I/O operations
 		// Block submission is the most time-sensitive operation - every millisecond counts!
 		if result.IsBlock {
+                        result.BlockShareDiff = share.Difficulty // <-- capture miner difficulty at block find
 			cp.handleBlock(share, result)
 		}
 

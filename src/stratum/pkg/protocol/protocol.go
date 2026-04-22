@@ -803,6 +803,7 @@ type ShareResult struct {
 	// how "hard" the miner actually worked, which may be much higher than the assigned
 	// share difficulty. Used for best-share tracking and lucky share statistics.
 	ActualDifficulty float64
+        BlockShareDiff   float64 // <--- ADD THIS
 
 	// Block diagnostic data (only set when IsBlock=true, for rejection analysis)
 	PrevBlockHash string        // Previous block hash the block was built on

@@ -678,6 +678,7 @@ func TestDroppedSharesReportedToMiner(t *testing.T) {
 	type ShareResult struct {
 		accepted     bool
 		rejectReason string
+                BlockShareDiff   float64 // <--- ADD THIS
 	}
 
 	// When buffer is full, shares should be explicitly rejected

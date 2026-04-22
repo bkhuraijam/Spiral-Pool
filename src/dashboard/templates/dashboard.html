@@ -3213,7 +3213,7 @@
         </section>
 
         <!-- Blocks Found History -->
-        <section class="collapsible-section" style="margin-bottom: 1rem;">
+<section class="collapsible-section" style="margin-bottom: 1rem;">
     <div class="collapsible-header" onclick="toggleSection('ba-history-section')">
         <h3>Block History (Last 5,000)</h3>
         <span class="collapsible-toggle">▼</span>
@@ -3235,72 +3235,103 @@
                 <tbody id="ba-history-body">
                     {% for block in blocks %}
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
-                        <td style="padding: 10px 8px;">
-    {% if block.coin|upper == 'BTC' %}
-        <a href="https://mempool.space/block/{{ block.blockHeight }}" target="_blank" style="color: #ff9500; text-decoration: none; font-weight: bold; border-bottom: 1px dotted #ff9500;">{{ block.blockHeight }}</a>
-    {% elif block.coin|upper == 'BCH' %}
-        <a href="https://blockchair.com/bitcoin-cash/block/{{ block.blockHeight }}" target="_blank" style="color: #8bc34a; text-decoration: none; border-bottom: 1px dotted #8bc34a;">{{ block.blockHeight }}</a>
-    {% elif block.coin|upper == 'DGB' %}
-        <a href="https://chainz.cryptoid.info/dgb/block.dws?{{ block.blockHeight }}.htm" target="_blank" style="color: var(--neon-cyan); text-decoration: none; border-bottom: 1px dotted var(--neon-cyan);">{{ block.blockHeight }}</a>
-    {% else %}
-        <span style="color: var(--neon-cyan);">{{ block.blockHeight }}</span>
-    {% endif %}
-</td>
-                        <td style="padding: 10px 8px; color: var(--text-dim); white-space: nowrap;">{{ block.created.split('.')[0].replace('T', ' ') }}</td>
-                        <td style="padding: 10px 8px; font-size: 0.8rem; word-break: break-all;">
-                            <span style="color: var(--text-muted);">{{ block.miner[:12] }}...</span>
-                            {% set worker = block.worker or block.source or "" %}
-                            {% if worker %}<span style="color: var(--neon-cyan); font-weight: bold;">.{{ worker }}</span>{% endif %}
-                        </td>
                         
-                        <td style="padding: 10px 8px; color: var(--text-dim);">
-                            {% if block.networkDifficulty >= 1000000000 %}
-                                {{ "{:,.2f}G".format(block.networkDifficulty / 1000000000) }}
+                        <!-- Height -->
+                        <td style="padding: 10px 8px;">
+                            {% if block.coin|upper == 'BTC' %}
+                                <a href="https://mempool.space/block/{{ block.blockHeight }}" target="_blank" style="color: #ff9500; text-decoration: none; font-weight: bold; border-bottom: 1px dotted #ff9500;">{{ block.blockHeight }}</a>
+                            {% elif block.coin|upper == 'BCH' %}
+                                <a href="https://blockchair.com/bitcoin-cash/block/{{ block.blockHeight }}" target="_blank" style="color: #8bc34a; text-decoration: none; border-bottom: 1px dotted #8bc34a;">{{ block.blockHeight }}</a>
+                            {% elif block.coin|upper == 'DGB' %}
+                                <a href="https://chainz.cryptoid.info/dgb/block.dws?{{ block.blockHeight }}.htm" target="_blank" style="color: var(--neon-cyan); text-decoration: none; border-bottom: 1px dotted var(--neon-cyan);">{{ block.blockHeight }}</a>
                             {% else %}
-                                {{ "{:,.2f}M".format(block.networkDifficulty / 1000000) if block.networkDifficulty else 'N/A' }}
+                                <span style="color: var(--neon-cyan);">{{ block.blockHeight }}</span>
                             {% endif %}
                         </td>
 
+                        <!-- Time -->
+                        <td style="padding: 10px 8px; color: var(--text-dim); white-space: nowrap;">
+                            {{ block.created.split('.')[0].replace('T', ' ') }}
+                        </td>
+
+                        <!-- Miner / Worker -->
+                        <td style="padding: 10px 8px; font-size: 0.8rem; word-break: break-all;">
+                            <span style="color: var(--text-muted);">{{ block.miner[:12] }}...</span>
+                            {% set worker = block.worker or block.source or "" %}
+                            {% if worker %}
+                                <span style="color: var(--neon-cyan); font-weight: bold;">.{{ worker }}</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Network Difficulty -->
+                        <td style="padding: 10px 8px; color: var(--text-dim);">
+    {% if block.networkDifficulty is not none %}
+        {% if block.networkDifficulty >= 1e15 %}
+            {{ "{:,.2f}P".format(block.networkDifficulty / 1e15) }}
+        {% elif block.networkDifficulty >= 1e12 %}
+            {{ "{:,.2f}T".format(block.networkDifficulty / 1e12) }}
+        {% elif block.networkDifficulty >= 1e9 %}
+            {{ "{:,.2f}G".format(block.networkDifficulty / 1e9) }}
+        {% elif block.networkDifficulty >= 1e6 %}
+            {{ "{:,.2f}M".format(block.networkDifficulty / 1e6) }}
+        {% else %}
+            {{ "{:,.0f}".format(block.networkDifficulty) }}
+        {% endif %}
+    {% else %}
+        <span style="color: var(--text-muted); font-size: 0.75rem;">N/A</span>
+    {% endif %}
+</td>
+
+                        <!-- Miner Difficulty -->
                         <td style="padding: 10px 8px; color: #ffcc00; font-weight: bold;">
-                            {% if block.effort > 0 %}
-                                {% if block.effort >= 1000000000 %}
-                                    {{ "{:,.2f}G".format(block.effort / 1000000000) }}
-                                {% elif block.effort >= 1000000 %}
-                                    {{ "{:,.2f}M".format(block.effort / 1000000) }}
+                            {% if block.minerDifficulty %}
+                                {% if block.minerDifficulty >= 1e15 %}
+                                    {{ "{:,.2f}P".format(block.minerDifficulty / 1e15) }}
+                                {% elif block.minerDifficulty >= 1e12 %}
+                                    {{ "{:,.2f}T".format(block.minerDifficulty / 1e12) }}
+                                {% elif block.minerDifficulty >= 1e9 %}
+                                    {{ "{:,.2f}G".format(block.minerDifficulty / 1e9) }}
+                                {% elif block.minerDifficulty >= 1e6 %}
+                                    {{ "{:,.2f}M".format(block.minerDifficulty / 1e6) }}
                                 {% else %}
-                                    {{ "{:,.0f}".format(block.effort) }}
+                                    {{ "{:,.0f}".format(block.minerDifficulty) }}
                                 {% endif %}
                             {% else %}
                                 <span style="color: var(--text-muted); font-size: 0.75rem;">N/A</span>
                             {% endif %}
                         </td>
 
+                        <!-- Effort -->
                         <td style="padding: 10px 8px;">
-                            {% if block.effort > 0 and block.networkDifficulty > 0 %}
-                                {% set luck = (block.effort / block.networkDifficulty) * 100 %}
-                                <span style="color: {% if luck <= 100 %}#00ff00{% else %}#ffaa00{% endif %};">
-                                    {{ "{:,.1f}%".format(luck) }}
-                                </span>
-                            {% else %}
-                                <span style="color: var(--text-muted);">---</span>
-                            {% endif %}
-                        </td>
+    {% if block.effort %}
+        <span style="color: {% if block.effort >= 100 %}#00ff00{% else %}#ffaa00{% endif %}; font-weight: bold;">
+            {{ "{:,.2f}%".format(block.effort) }}
+        </span>
+    {% else %}
+        <span style="color: var(--text-muted);">---</span>
+    {% endif %}
+</td>
 
+                        <!-- Status -->
                         <td style="padding: 10px 8px;">
                             <span class="status-badge-{{ block.status|lower }}" style="padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; border: 1px solid currentColor;">
                                 {{ block.status|upper }}
                             </span>
                         </td>
+
                     </tr>
                     {% else %}
-                    <tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--text-muted);">NO BLOCKS RECORDED IN HISTORY</td></tr>
+                    <tr>
+                        <td colspan="7" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                            NO BLOCKS RECORDED IN HISTORY
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
-</section>
-                
+</section>                
         <!-- Cumulative Blocks Chart -->
         <section class="collapsible-section" style="margin-bottom: 1rem;">
             <div class="collapsible-header" onclick="toggleSection('ba-cumulative-section')">

@@ -9369,21 +9369,31 @@ def index():
     # 1. Helper functions first
     def hash_to_difficulty(block_hash: str) -> float:
         try:
-            if not block_hash or len(block_hash) < 64: return 0
-            ba = bytearray.fromhex(block_hash); ba.reverse()
-            hash_int = int(ba.hex(), 16)
-            diff1_target = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-            return (diff1_target / (hash_int * 4294967296)) * 1000000
-        except: return 0
+            if not block_hash or len(block_hash) != 64:
+                return 0
 
-    # 2. LOAD CONFIG (The missing line causing your error)
+            # Convert hash to integer (big endian)
+            hash_int = int(block_hash, 16)
+
+            # Diff1 target (Bitcoin/DGB)
+            max_target = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+
+            # Calculate difficulty
+            difficulty = max_target / hash_int
+
+            return difficulty
+
+        except Exception:
+            return 0
+
+    # 2. LOAD CONFIG
     config = load_config()
     if config.get("first_run", True):
         return redirect(url_for('setup'))
 
     p_id = os.getenv('POOL_ID', 'dgb_sha256_1')
 
-    # 3. Use your new centralized function
+    # 3. Get all blocks
     all_blocks = get_all_pool_blocks(p_id)
 
     # 4. Fetch general stats
@@ -9391,29 +9401,47 @@ def index():
     try:
         s_resp = requests.get(f"{host}/api/pools/{p_id}", timeout=5)
         pool_stats = s_resp.json() if s_resp.status_code == 200 else {}
-    except:
+    except Exception:
         pool_stats = {}
 
-    # 5. Process blocks and apply manual counter override
-    for block in all_blocks:
-        actual_diff = hash_to_difficulty(block.get('hash', ''))
-        block['minerDifficulty'] = actual_diff
-        block['difficulty'] = actual_diff
-        net_diff = block.get('networkDifficulty', 0)
-        block['effort'] = (net_diff / actual_diff) if actual_diff > 0 and net_diff > 0 else 0
+    # 5. Process blocks (HISTORICAL CORRECT)
 
+    for block in all_blocks:
+
+        # ✅ Correct miner difficulty from block hash
+        miner_diff = hash_to_difficulty(block.get('hash'))
+
+        block['minerDifficulty'] = miner_diff
+        block['difficulty'] = miner_diff
+
+        # ✅ Network difficulty
+        net_diff = block.get('networkDifficulty') or 0
+
+        try:
+            net_diff = float(net_diff)
+        except (ValueError, TypeError):
+            net_diff = 0
+
+        # ✅ Effort calculation (percentage)
+        if miner_diff > 0 and net_diff > 0:
+            block['effort'] = round((miner_diff / net_diff) * 100, 2)
+        else:
+            block['effort'] = 0
+
+    # 6. Apply manual counter override
     if pool_stats:
         pool_stats['totalBlocks'] = len(all_blocks)
         if 'poolStats' in pool_stats:
             pool_stats['poolStats']['totalBlocks'] = len(all_blocks)
 
-    # 6. Render with all required variables
-    return render_template('dashboard.html',
-                           config=config,
-                           stats=pool_stats,
-                           blocks=all_blocks,
-                           block_count=len(all_blocks))
-
+    # 7. Render template
+    return render_template(
+        'dashboard.html',
+        config=config,
+        stats=pool_stats,
+        blocks=all_blocks,
+        block_count=len(all_blocks)
+    )
 
 @app.route('/setup')
 @api_key_or_login_required
