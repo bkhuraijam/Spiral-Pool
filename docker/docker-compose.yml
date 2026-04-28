@@ -943,6 +943,11 @@ services:
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
       - DASHBOARD_CORS_ORIGINS=${DASHBOARD_CORS_ORIGINS:-}
       - SPIRAL_ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=spiralstratum
+      - POSTGRES_USER=spiralstratum
+      - POSTGRES_PASSWORD=4492b455909d941de3b04d41b3fc33be
     volumes:
       - dashboard-config:/spiralpool/dashboard/data
       - dashboard-auth:/app/data
@@ -1082,7 +1087,7 @@ services:
   # GRAFANA (DASHBOARDS & ALERTING)
   # ═══════════════════════════════════════════════════════════════════════════
   grafana:
-    profiles: ["multi"]
+    profiles: []
     image: grafana/grafana-oss:10.4.2
     container_name: spiralpool-grafana
     restart: unless-stopped

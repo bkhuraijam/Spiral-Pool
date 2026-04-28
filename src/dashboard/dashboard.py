@@ -60,6 +60,98 @@ except ImportError:
 
 app = Flask(__name__)
 
+
+import os
+import psycopg2
+import psycopg2.extras
+
+def get_blocks_from_db(pool_ids: list, limit: int = 5000) -> list:
+    """Fetch blocks directly from DB with robust error handling."""
+    try:
+        # Debug: Print connection params (redact password in production)
+        print(f"[DEBUG] Connecting to DB: {os.getenv('POSTGRES_HOST', 'postgres')}:{os.getenv('POSTGRES_PORT', 5432)}/{os.getenv('POSTGRES_DB', 'spiralstratum')}")
+        
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('POSTGRES_PORT', 5432)),
+            dbname=os.getenv('POSTGRES_DB', 'spiralstratum'),
+            user=os.getenv('POSTGRES_USER', 'spiralstratum'),
+            password=os.getenv('POSTGRES_PASSWORD', ''),
+        )
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Build UNION across all pool tables
+        unions = []
+        for pool_id in pool_ids:
+            safe = ''.join(c for c in pool_id if c.isalnum() or c == '_')
+            table = f"blocks_{safe}"
+            
+            # Check if table exists before querying
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_name = %s
+                ) AS table_exists;
+            """, (table,))
+            if not cursor.fetchone()['table_exists']:
+                print(f"[WARN] Table {table} does not exist — skipping")
+                continue
+                
+            unions.append(f"""
+                SELECT
+                    blockheight   AS "blockHeight",
+                    networkdifficulty AS "networkDifficulty",
+                    status,
+                    effort,
+                    miner,
+                    reward,
+                    source,
+                    hash,
+                    created,
+                    coin,
+                    confirmationprogress AS "confirmationProgress"
+                FROM {table}
+            """)
+
+        if not unions:
+            print("[WARN] No valid tables to query — returning empty list")
+            return []
+
+        query = (
+            " UNION ALL ".join(unions)
+            + " ORDER BY created DESC"
+            + f" LIMIT {int(limit)}"
+        )
+        print(f"[DEBUG] Executing query: {query[:200]}...")  # Log first 200 chars
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        print(f"[DEBUG] Fetched {len(rows)} rows from DB")
+        
+        cursor.close()
+        conn.close()
+
+        # Convert to plain dicts
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get('created'):
+                d['created'] = d['created'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            if d.get('reward') is not None:
+                d['reward'] = float(d['reward'])
+            # Ensure numeric fields are never None
+            if d.get('networkDifficulty') is None:
+                d['networkDifficulty'] = 0.0
+            if d.get('effort') is None:
+                d['effort'] = 0.0
+            result.append(d)
+        return result
+
+    except Exception as e:
+        print(f"[ERROR] DB block fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
 # Session secret key - persist across restarts for session continuity
 # Store in the same data directory as auth config
 SECRET_KEY_FILE = Path("/spiralpool/dashboard/data/secret_key")
@@ -9337,21 +9429,16 @@ def change_password():
     app.logger.info(f"SECURITY: Admin password changed by {request.remote_addr}")
     return jsonify({"success": True, "message": "Password changed successfully"})
 
-def get_all_pool_blocks(pool_id):
-    """
-    Helper to fetch block history with the extended pageSize limit.
-    This bypasses the default 200-block cap in the Go backend.
-    """
-    host = os.getenv('POOL_API_URL', 'http://stratum:4000')
-    url = f"{host}/api/pools/{pool_id}/blocks?pageSize=5000"
+def get_blocks_for_pool(pool_id, host):
     try:
-        # Increase timeout slightly for larger datasets
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception as e:
-        print(f"[ERROR] Global block fetch failed: {e}")
-    return []
+        resp = requests.get(f"{host}/api/pools/{pool_id}/blocks?pageSize=5000", timeout=10)
+        blocks = resp.json() if resp.status_code == 200 else []
+        for block in blocks:
+            block['pool_id'] = pool_id
+            block['coin'] = block.get('coin', pool_id.split('_')[0].upper())
+        return blocks
+    except:
+        return []
 
 # ─────────────────────────────────────────────
 # MAIN ROUTES
@@ -9366,82 +9453,65 @@ def service_worker():
 @app.route('/')
 @api_key_or_login_required
 def index():
-    # 1. Helper functions first
     def hash_to_difficulty(block_hash: str) -> float:
         try:
-            if not block_hash or len(block_hash) != 64:
+            if not block_hash or len(block_hash) < 64:
                 return 0
-
-            # Convert hash to integer (big endian)
             hash_int = int(block_hash, 16)
-
-            # Diff1 target (Bitcoin/DGB)
-            max_target = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-
-            # Calculate difficulty
-            difficulty = max_target / hash_int
-
-            return difficulty
-
-        except Exception:
+            if hash_int == 0:
+                return 0
+            diff1_target = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+            return diff1_target / hash_int
+        except:
             return 0
 
-    # 2. LOAD CONFIG
     config = load_config()
     if config.get("first_run", True):
         return redirect(url_for('setup'))
 
-    p_id = os.getenv('POOL_ID', 'dgb_sha256_1')
-
-    # 3. Get all blocks
-    all_blocks = get_all_pool_blocks(p_id)
-
-    # 4. Fetch general stats
     host = os.getenv('POOL_API_URL', 'http://stratum:4000')
+    dgb_pool_id = os.getenv('POOL_ID', 'dgb_sha256_1')
+
+    # Fetch blocks directly from DB (correct historical networkdifficulty)
+    # Initialize as empty list so the page doesn't crash if DB fails
+    all_blocks = []
     try:
-        s_resp = requests.get(f"{host}/api/pools/{p_id}", timeout=5)
+        all_blocks = get_blocks_from_db(['dgb_sha256_1', 'fbtc_sha256_1'])
+    except Exception as e:
+        print(f"[ERROR] DB block fetch failed: {e}")
+        import traceback, sys
+        print("[ERROR] Full traceback:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        # DO NOT return [] here. Let the code continue so all_blocks remains [].
+        # The template will handle the empty list and show "NO BLOCKS".
+
+    # Process blocks
+    for block in all_blocks:
+        actual_diff = hash_to_difficulty(block.get('hash', ''))
+        block['minerDifficulty'] = actual_diff
+        block['difficulty'] = actual_diff
+        net_diff = block.get('networkDifficulty', 0)
+        block['effort'] = (actual_diff / net_diff) if actual_diff > 0 and net_diff > 0 else 0
+        if not block.get('worker'):
+            block['worker'] = block.get('source', '')
+
+    # Stats from primary pool API
+    try:
+        s_resp = requests.get(f"{host}/api/pools/{dgb_pool_id}", timeout=5)
         pool_stats = s_resp.json() if s_resp.status_code == 200 else {}
-    except Exception:
+    except:
         pool_stats = {}
 
-    # 5. Process blocks (HISTORICAL CORRECT)
-
-    for block in all_blocks:
-
-        # ✅ Correct miner difficulty from block hash
-        miner_diff = hash_to_difficulty(block.get('hash'))
-
-        block['minerDifficulty'] = miner_diff
-        block['difficulty'] = miner_diff
-
-        # ✅ Network difficulty
-        net_diff = block.get('networkDifficulty') or 0
-
-        try:
-            net_diff = float(net_diff)
-        except (ValueError, TypeError):
-            net_diff = 0
-
-        # ✅ Effort calculation (percentage)
-        if miner_diff > 0 and net_diff > 0:
-            block['effort'] = round((miner_diff / net_diff) * 100, 2)
-        else:
-            block['effort'] = 0
-
-    # 6. Apply manual counter override
     if pool_stats:
         pool_stats['totalBlocks'] = len(all_blocks)
         if 'poolStats' in pool_stats:
             pool_stats['poolStats']['totalBlocks'] = len(all_blocks)
 
-    # 7. Render template
-    return render_template(
-        'dashboard.html',
-        config=config,
-        stats=pool_stats,
-        blocks=all_blocks,
-        block_count=len(all_blocks)
-    )
+    return render_template('dashboard.html',
+                           config=config,
+                           stats=pool_stats,
+                           blocks=all_blocks,
+                           block_count=len(all_blocks))
 
 @app.route('/setup')
 @api_key_or_login_required

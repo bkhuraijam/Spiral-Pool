@@ -2,14 +2,14 @@
   "pool_api_url": "http://stratum:4000",
   "prometheus_url": "http://stratum:9100/metrics",
   "metrics_url": "http://stratum:9100/metrics",
-  "default_pool_id": "dgb_sha256_1",
+  "default_pool_id": "fbtc_sha256_1",
   "setup_complete": true,
   "auth_enabled": false,
   "coins": [
     {
-      "symbol": "DGB",
+      "symbol": "FBTC",
       "enabled": true,
-      "wallet_address": "DHcagsSAiyk4SbnQfMteYqArjz1bhGGR73"
+      "wallet_address": "1LJwdGjECWpJtneaEMg9qYBejgdi6swSoM"
     }
   ],
   "dashboard_title": "Beni's Solo Pool",
@@ -96,14 +96,14 @@
   },
   "refresh_interval": 30,
   "theme": "cyberpunk",
-  "display_currency": "CAD",
+  "display_currency": "USD",
   "power_cost": {
-    "currency": "CAD",
+    "currency": "USD",
     "currency_symbol": "$",
     "rate_per_kwh": 0.12,
-    "is_free_power": false
+    "is_free_power": true
   },
   "pool_mode": "solo",
-  "multi_coin_enabled": false,
-  "expected_fleet_ths": 100
+  "multi_coin_enabled": true,
+  "expected_fleet_ths": 750
 }

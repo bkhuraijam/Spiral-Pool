@@ -3244,6 +3244,8 @@
                                 <a href="https://blockchair.com/bitcoin-cash/block/{{ block.blockHeight }}" target="_blank" style="color: #8bc34a; text-decoration: none; border-bottom: 1px dotted #8bc34a;">{{ block.blockHeight }}</a>
                             {% elif block.coin|upper == 'DGB' %}
                                 <a href="https://chainz.cryptoid.info/dgb/block.dws?{{ block.blockHeight }}.htm" target="_blank" style="color: var(--neon-cyan); text-decoration: none; border-bottom: 1px dotted var(--neon-cyan);">{{ block.blockHeight }}</a>
+                            {% elif block.coin|upper == 'FBTC' %}
+                                <a href="https://mempool.fractalbitcoin.io/block/{{ block.blockHeight }}" target="_blank" style="color: var(--neon-cyan);">{{ block.blockHeight }}</a>
                             {% else %}
                                 <span style="color: var(--neon-cyan);">{{ block.blockHeight }}</span>
                             {% endif %}
@@ -3256,12 +3258,20 @@
 
                         <!-- Miner / Worker -->
                         <td style="padding: 10px 8px; font-size: 0.8rem; word-break: break-all;">
-                            <span style="color: var(--text-muted);">{{ block.miner[:12] }}...</span>
-                            {% set worker = block.worker or block.source or "" %}
-                            {% if worker %}
-                                <span style="color: var(--neon-cyan); font-weight: bold;">.{{ worker }}</span>
-                            {% endif %}
-                        </td>
+    <!-- Coin badge -->
+    <span style="
+        background: {% if block.coin == 'FBTC' %}rgba(255,140,0,0.2){% else %}rgba(0,200,255,0.2){% endif %};
+        color: {% if block.coin == 'FBTC' %}#ff8c00{% else %}var(--neon-cyan){% endif %};
+        border: 1px solid {% if block.coin == 'FBTC' %}#ff8c00{% else %}var(--neon-cyan){% endif %};
+        padding: 1px 5px; border-radius: 3px; font-size: 0.7rem; margin-right: 6px;">
+        {{ block.coin }}
+    </span>
+    <span style="color: var(--text-muted);">{{ block.miner[:12] }}...</span>
+    {% set worker = block.worker or block.source or "" %}
+    {% if worker %}
+        <span style="color: var(--neon-cyan); font-weight: bold;">.{{ worker }}</span>
+    {% endif %}
+</td>
 
                         <!-- Network Difficulty -->
                         <td style="padding: 10px 8px; color: var(--text-dim);">
@@ -3302,11 +3312,13 @@
                         </td>
 
                         <!-- Effort -->
-                        <td style="padding: 10px 8px;">
-    {% if block.effort %}
+<td style="padding: 10px 8px;">
+    {% if block.effort is not none and block.effort != 0 %}
         <span style="color: {% if block.effort >= 100 %}#00ff00{% else %}#ffaa00{% endif %}; font-weight: bold;">
             {{ "{:,.2f}%".format(block.effort) }}
         </span>
+    {% elif block.effort == 0 %}
+        <span style="color: #ffaa00; font-weight: bold;">0.00%</span>
     {% else %}
         <span style="color: var(--text-muted);">---</span>
     {% endif %}
@@ -7993,6 +8005,7 @@
                     switchDashboardCoin(topCoin);
                 }
 
+
                 // Sync stats dropdown with header coin selector
                 if (_userSelectedCoin) {
                     const statsSel = document.getElementById('stats-coin-selector');
@@ -8002,6 +8015,11 @@
                     _selectedStatsCoin = _userSelectedCoin;
                 }
             }
+
+            // Recompute resolved coin data after auto-select may have changed _userSelectedCoin
+            const resolvedCoin = _userSelectedCoin || apiPrimary;
+            const resolvedCoinData = pcs[resolvedCoin] || activeCoinData;
+
             // Always re-apply coin filter so selected coin stays current
             applyStatsCoinFilter();
 
@@ -8044,8 +8062,8 @@
 
             // Blocks Found: per-coin when a coin is selected, aggregate otherwise
             let currentBlocks;
-            if (_userSelectedCoin && activeCoinData) {
-                currentBlocks = activeCoinData.blocks || 0;
+            if (resolvedCoinData) {
+                currentBlocks = resolvedCoinData.blocks || 0;
             } else {
                 currentBlocks = poolBlocks > 0 ? poolBlocks : (totals.blocks_found || 0);
             }
@@ -8055,16 +8073,17 @@
 
             // Last Block Found: per-coin when a coin is selected, global otherwise
             let lastBlockTime, lastBlockFinder, lastBlockHeight;
-            if (_userSelectedCoin && activeCoinData && activeCoinData.last_block_time) {
-                lastBlockTime = activeCoinData.last_block_time;
-                lastBlockFinder = activeCoinData.last_block_finder;
-                lastBlockHeight = activeCoinData.last_block_height;
+            if (resolvedCoinData && resolvedCoinData.last_block_time) {
+                lastBlockTime = resolvedCoinData.last_block_time;
+                lastBlockFinder = resolvedCoinData.last_block_finder;
+                lastBlockHeight = resolvedCoinData.last_block_height;
             } else {
                 lastBlockTime = data.last_block_time;
                 lastBlockFinder = data.last_block_finder;
                 lastBlockHeight = data.last_block_height;
             }
             updateLastBlockDisplay(lastBlockTime, lastBlockFinder, lastBlockHeight);
+            
 
             // Check for new blocks and trigger celebration (with finder info from API)
             // Only celebrate blocks found recently (within 5 minutes) to prevent
