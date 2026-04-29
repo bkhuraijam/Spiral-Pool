@@ -2027,15 +2027,26 @@ func (cp *CoinPool) Start(ctx context.Context) error {
 	cp.logger.Info("Job manager started")
 
 	// Initialize block notifications
-	if err := cp.initBlockNotifications(ctx); err != nil {
-		return fmt.Errorf("failed to initialize block notifications: %w", err)
-	}
+                if err := cp.initBlockNotifications(ctx); err != nil {
+                return fmt.Errorf("failed to initialize block notifications: %w", err)
+        }
 
-	// Start stratum server
-	if err := cp.stratumServer.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start stratum server: %w", err)
-	}
-	cp.logger.Infow("Stratum server started", "port", cp.cfg.Stratum.Port)
+        // Fetch initial network difficulty synchronously BEFORE accepting miners.
+        // Without this, a block solved during the jitter window records
+        // networkdifficulty=1 (GetNetworkDifficulty returns 0 when uninitialized).
+        initialDiff, diffErr := cp.nodeManager.GetDifficulty(ctx)
+        if diffErr != nil {
+                cp.logger.Warnw("Failed to get initial network difficulty (will retry in loop)", "error", diffErr)
+        } else {
+                cp.shareValidator.SetNetworkDifficulty(initialDiff)
+                cp.logger.Infow("Initial network difficulty set before stratum start", "difficulty", initialDiff, "coin", cp.coinSymbol)
+        }
+
+        // Start stratum server
+        if err := cp.stratumServer.Start(ctx); err != nil {
+                return fmt.Errorf("failed to start stratum server: %w", err)
+        }
+        cp.logger.Infow("Stratum server started", "port", cp.cfg.Stratum.Port)
 
 	// Start V2 stratum server (if configured)
 	if cp.v2Server != nil {

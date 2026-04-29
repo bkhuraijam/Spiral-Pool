@@ -3009,6 +3009,17 @@ func (p *Pool) Run(ctx context.Context) error {
 		p.haRole.Store(int32(ha.RoleBackup))
 	}
 
+                // Fetch initial network difficulty synchronously BEFORE accepting miners.
+        // Without this, a block solved during the jitter window records
+        // networkdifficulty=1 (GetNetworkDifficulty returns 0 when uninitialized).
+        initialDiff, diffErr := p.daemonClient.GetDifficulty(ctx)
+        if diffErr != nil {
+                p.logger.Warnw("Failed to get initial network difficulty (will retry in loop)", "error", diffErr)
+        } else {
+                p.shareValidator.SetNetworkDifficulty(initialDiff)
+                p.logger.Infow("Initial network difficulty set before stratum start", "difficulty", initialDiff)
+        }
+
 	// Start stratum server
 	if err := p.stratumServer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start stratum server: %w", err)
