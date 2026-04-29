@@ -2996,8 +2996,9 @@
                 <div class="stat-value">
                     <span id="etb-time">--</span>
                 </div>
-                <div class="stat-sub" id="etb-probability">24h odds: --%</div>
+                <div class="stat-sub"><span id="etb-diff">Diff: --</span> · <span id="etb-probability">24h odds: --%</span></div>
             </div>
+
 
             <div class="stat-card difficulty">
                 <div class="stat-label">Best Difficulty</div>
@@ -4856,8 +4857,18 @@
                         const prob24h = (1 - Math.exp(-86400 / etbSec)) * 100;
                         etbProbEl.textContent = '24h odds: ' + prob24h.toFixed(2) + '%';
                     }
+                } else {
+                    // No hashrate on this coin — clear ETB but still show difficulty
+                    const etbEl = document.getElementById('etb-time');
+                    if (etbEl) etbEl.textContent = '--';
+                    const etbProbEl = document.getElementById('etb-probability');
+                    if (etbProbEl) etbProbEl.textContent = '24h odds: --%';
                 }
+                // Always show network difficulty for selected coin
+                const etbDiffEl = document.getElementById('etb-diff');
+                if (etbDiffEl) etbDiffEl.textContent = coinDiff > 0 ? 'Diff: ' + formatDifficultyValue(coinDiff) : 'Diff: --';
             }
+
 
             // Update header badge active states
             const group = document.getElementById('coin-selector-group');
@@ -8534,7 +8545,11 @@
                         const prob24h = (1 - Math.exp(-86400 / etbSec)) * 100;
                         etbProbEl.textContent = `24h odds: ${prob24h.toFixed(2)}%`;
                     }
+                    const etbDiffEl = document.getElementById('etb-diff');
+                    if (etbDiffEl) etbDiffEl.textContent = coinData.difficulty > 0 ? 'Diff: ' + formatDifficultyValue(coinData.difficulty) : 'Diff: --';
                     return;
+
+                      
                 }
 
                 // Aggregate ETB: fetch from backend API (default / no coin selected)
@@ -8558,8 +8573,12 @@
                         const prob24h = prob['24h'] || 0;
                         etbProbEl.textContent = `24h odds: ${prob24h.toFixed(2)}%`;
                     }
+                    const etbDiffEl = document.getElementById('etb-diff');
+                    if (etbDiffEl) etbDiffEl.textContent = currentNetworkDifficulty > 0 ? 'Diff: ' + formatDifficultyValue(currentNetworkDifficulty) : 'Diff: --';
+
                 }
             } catch (e) {
+
                 console.error('Failed to fetch ETB data:', e);
             }
         }
