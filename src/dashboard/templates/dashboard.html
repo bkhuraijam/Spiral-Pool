@@ -2032,6 +2032,204 @@
             padding: 0.6rem 0.8rem;
             font-size: 0.85rem;
         }
+
+        /* Multi-Coin Rotation Widget */
+.rotation-section {
+    margin-bottom: 1.5rem;
+}
+
+.rotation-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    user-select: none;
+}
+
+.rotation-header:hover {
+    background: rgba(0, 212, 255, 0.05);
+    border-color: rgba(0, 212, 255, 0.3);
+}
+
+.rotation-header h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    color: var(--neon-cyan);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rotation-body {
+    padding-top: 1rem;
+    overflow: hidden;
+    transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+    max-height: 1000px;
+    opacity: 1;
+}
+
+.rotation-section.collapsed .rotation-body {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+}
+
+.rotation-live-bar {
+    display: flex;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.rotation-live-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.rotation-live-label {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+}
+
+.rotation-live-value {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.rotation-live-value.active-coin {
+    font-size: 1.3rem;
+    text-shadow: 0 0 12px currentColor;
+}
+
+.rotation-timeline {
+    position: relative;
+    height: 32px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 0.5rem;
+}
+
+.rotation-timeline-segment {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.8);
+    transition: filter 0.3s ease;
+    border-right: 1px solid rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.rotation-timeline-segment.dimmed {
+    filter: brightness(0.45);
+}
+
+.rotation-timeline-now {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: #fff;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+    z-index: 10;
+    transition: left 60s linear;
+}
+
+.rotation-timeline-now::after {
+    content: '▼';
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.55rem;
+    color: #fff;
+}
+
+.rotation-timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.rotation-schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+}
+
+.rotation-schedule-table th {
+    text-align: left;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-weight: 500;
+}
+
+.rotation-schedule-table td {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+}
+
+.rotation-schedule-table tr.active-row td {
+    color: var(--text-primary);
+    background: rgba(0, 212, 255, 0.06);
+}
+
+.rotation-coin-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+}
+
+.rotation-meta {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.rotation-empty {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
     </style>
     <script>
         (function() {
@@ -2829,6 +3027,65 @@
 
         <!-- Algo Badges (hidden when only one algorithm active) -->
         <div id="algo-badges" class="algo-badges" style="display:none;"></div>
+
+        <!-- Multi-Coin Rotation Status -->
+<div id="rotation-widget" class="collapsible-section rotation-section" style="display:none;">
+    <div class="collapsible-header" onclick="toggleSection('rotation-widget')">
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
+        <h3>🔄 Multi-Coin Rotation</h3>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span id="rotation-active-badge" class="coin-badge" style="font-size:0.65rem; display:none;">--</span>
+            <span class="collapsible-toggle">▼</span>
+        </div>
+    </div>
+    <div class="collapsible-content rotation-body">
+        <!-- Live Status -->
+        <div class="rotation-live-bar">
+            <div class="rotation-live-item">
+                <span class="rotation-live-label">Active Coin</span>
+                <span class="rotation-live-value active-coin" id="rotation-active-coin" style="color: var(--neon-cyan);">--</span>
+            </div>
+            <div class="rotation-live-item">
+                <span class="rotation-live-label">Time Remaining</span>
+                <span class="rotation-live-value" id="rotation-time-remaining" style="color: var(--neon-green);">--</span>
+            </div>
+            <div class="rotation-live-item">
+                <span class="rotation-live-label">Next Switch</span>
+                <span class="rotation-live-value" id="rotation-next-switch" style="color: var(--neon-orange);">--</span>
+            </div>
+        </div>
+
+        <!-- 24h Timeline Bar -->
+        <div class="rotation-timeline" id="rotation-timeline"></div>
+        <div class="rotation-timeline-labels">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>24:00</span>
+        </div>
+
+        <!-- Schedule Table -->
+        <table class="rotation-schedule-table">
+            <thead>
+                <tr>
+                    <th>Coin</th>
+                    <th>Weight</th>
+                    <th>Hours</th>
+                    <th>Schedule</th>
+                </tr>
+            </thead>
+            <tbody id="rotation-schedule-body"></tbody>
+        </table>
+
+        <!-- Meta -->
+        <div class="rotation-meta">
+            <span>Port: <span id="rotation-port">16180</span></span>
+            <span>Timezone: <span id="rotation-timezone">--</span></span>
+        </div>
+    </div>
+</div>
+
 
         <!-- Draggable sections container (everything below stats bar) -->
         <div id="sortable-sections">
@@ -9867,6 +10124,163 @@
             }
         }
 
+        // --- Multi-Coin Rotation Widget ---
+const _rotationCoinColors = {
+    'FBTC': '#00d4ff',
+    'BCH':  '#4ade80',
+    'BTC':  '#fb923c',
+    'DGB':  '#a78bfa',
+    'QBX':  '#f472b6',
+    'BC2':  '#facc15',
+    'LTC':  '#bfbbbb',
+    'DOGE': '#c4a747',
+    'NMC':  '#0ea5e9',
+    'SYS':  '#6366f1',
+    'XMY':  '#e879f9',
+    'PEP':  '#34d399',
+    'CAT':  '#f97316',
+};
+
+function getRotationCoinColor(symbol) {
+    return _rotationCoinColors[symbol] || '#6b7280';
+}
+
+async function fetchRotationStatus() {
+    try {
+        const response = await fetch('/api/multiport');
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const widget = document.getElementById('rotation-widget');
+        if (!widget) return;
+
+        // Hide widget if multi-port is not enabled
+        if (!data.enabled) {
+            widget.style.display = 'none';
+            return;
+        }
+        widget.style.display = '';
+
+        const live = data.live || {};
+        const schedule = data.schedule || [];
+        const activeCoin = live.active_coin || '--';
+        const timeRemaining = live.time_remaining || '--';
+        const nextSwitch = live.next_switch || '--';
+
+        // Active coin
+        const activeEl = document.getElementById('rotation-active-coin');
+        if (activeEl) {
+            activeEl.textContent = activeCoin;
+            activeEl.style.color = getRotationCoinColor(activeCoin);
+        }
+
+        // Active badge in header
+        const activeBadge = document.getElementById('rotation-active-badge');
+        if (activeBadge) {
+            activeBadge.textContent = activeCoin;
+            activeBadge.style.display = '';
+            activeBadge.style.borderColor = getRotationCoinColor(activeCoin);
+            activeBadge.style.color = getRotationCoinColor(activeCoin);
+        }
+
+        // Time remaining
+        const remainEl = document.getElementById('rotation-time-remaining');
+        if (remainEl) remainEl.textContent = timeRemaining;
+
+        // Next switch
+        const nextEl = document.getElementById('rotation-next-switch');
+        if (nextEl) {
+            nextEl.textContent = nextSwitch;
+            nextEl.style.color = getRotationCoinColor(nextSwitch);
+        }
+
+        // Port & timezone
+        const portEl = document.getElementById('rotation-port');
+        if (portEl) portEl.textContent = data.port || 16180;
+        const tzEl = document.getElementById('rotation-timezone');
+        if (tzEl) tzEl.textContent = data.timezone || 'UTC';
+
+        // Build timeline bar
+        const timeline = document.getElementById('rotation-timeline');
+        if (timeline && schedule.length > 0) {
+            timeline.innerHTML = '';
+            schedule.forEach(slot => {
+                const pct = (slot.end_h - slot.start_h + (slot.end_h < slot.start_h ? 24 : 0)) / 24 * 100;
+                const left = slot.start_h / 24 * 100;
+                const isActive = slot.symbol === activeCoin;
+                const seg = document.createElement('div');
+                seg.className = 'rotation-timeline-segment' + (isActive ? '' : ' dimmed');
+                seg.style.left = left + '%';
+                seg.style.width = pct + '%';
+                seg.style.background = getRotationCoinColor(slot.symbol);
+                if (pct > 4) {
+                    seg.textContent = slot.symbol;
+                }
+                seg.title = slot.symbol + ' — ' + slot.start_h.toFixed(2) + 'h to ' + slot.end_h.toFixed(2) + 'h (' + slot.weight + '%)';
+                timeline.appendChild(seg);
+            });
+
+            // Now indicator
+            const now = new Date();
+            const tz = data.timezone || 'UTC';
+            let nowH;
+            try {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    hour: 'numeric', minute: 'numeric', second: 'numeric',
+                    hour12: false, timeZone: tz
+                }).formatToParts(now);
+                const h = parseInt(parts.find(p => p.type === 'hour').value);
+                const m = parseInt(parts.find(p => p.type === 'minute').value);
+                const s = parseInt(parts.find(p => p.type === 'second').value);
+                nowH = h + m / 60 + s / 3600;
+            } catch (e) {
+                nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+            }
+            const nowPct = (nowH / 24) * 100;
+            const marker = document.createElement('div');
+            marker.className = 'rotation-timeline-now';
+            marker.style.left = nowPct + '%';
+            timeline.appendChild(marker);
+        }
+
+        // Build schedule table
+        const tbody = document.getElementById('rotation-schedule-body');
+        if (tbody) {
+            tbody.innerHTML = '';
+            schedule.forEach(slot => {
+                const isActive = slot.symbol === activeCoin;
+                const durationH = slot.end_h - slot.start_h;
+                const hours = durationH > 0 ? durationH : durationH + 24;
+                const tr = document.createElement('tr');
+                if (isActive) tr.className = 'active-row';
+                const color = getRotationCoinColor(slot.symbol);
+                tr.innerHTML =
+                    '<td><span class="rotation-coin-dot" style="background:' + color + '"></span>' + slot.symbol + '</td>' +
+                    '<td>' + slot.weight + '%</td>' +
+                    '<td>' + hours.toFixed(2) + 'h</td>' +
+                    '<td>' + formatRotationTime(slot.start_h) + ' – ' + formatRotationTime(slot.end_h) + '</td>';
+                tbody.appendChild(tr);
+            });
+        }
+    } catch (e) {
+        console.warn('[ROTATION] Failed to fetch multiport status:', e);
+    }
+}
+
+function formatRotationTime(h) {
+    // Handle midnight wrap
+    const hh = ((h % 24) + 24) % 24;
+    const hours = Math.floor(hh);
+    const minutes = Math.round((hh - hours) * 60);
+    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+}
+
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (section) section.classList.toggle('collapsed');
+}
+
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             restoreCollapsedStates();  // Restore collapsed section states
@@ -9885,6 +10299,9 @@
             setInterval(fetchActivityFeed, 30000);
             setInterval(fetchAlgoBadges, 30000);
             setInterval(fetchHealthData, 30000);
+            fetchRotationStatus();
+            setInterval(fetchRotationStatus, 60000);
+
         });
     </script>
     <script>

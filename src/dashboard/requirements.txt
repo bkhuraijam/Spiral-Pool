@@ -10,3 +10,4 @@ gevent==25.9.1
 pyyaml==6.0.3
 bcrypt==4.1.2
 psycopg2-binary==2.9.9
+pytz==2026.1
