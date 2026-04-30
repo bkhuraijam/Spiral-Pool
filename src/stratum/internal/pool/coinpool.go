@@ -902,6 +902,13 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
 	}
 
 	if result.Accepted {
+                 // Accumulate round difficulty for effort tracking
+                if result.ActualDifficulty > 0 {
+                        cp.roundDiffMu.Lock()
+                        cp.currentRoundDifficulty += result.ActualDifficulty
+                        cp.roundDiffMu.Unlock()
+                }
+
 		// CRITICAL: Check for block FIRST, before ANY I/O operations
 		// Block submission is the most time-sensitive operation - every millisecond counts!
 		if result.IsBlock {
@@ -1054,6 +1061,27 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
 
 	// Convert satoshis to coin units (e.g., BTC/DGB) for storage
 	rewardCoins := float64(result.CoinbaseValue) / 1e8
+
+        // Calculate pool effort for this block
+        cp.roundDiffMu.Lock()
+        roundDiff := cp.currentRoundDifficulty
+        cp.currentRoundDifficulty = 0 // Reset for next round
+        cp.roundDiffMu.Unlock()
+
+        netDiff := share.NetworkDiff
+        var effortPercent float64
+        if netDiff > 0 && roundDiff > 0 {
+                effortPercent = (roundDiff / netDiff) * 100
+        }
+
+        cp.logger.Infow("Block effort calculated",
+                "height", share.BlockHeight,
+                "roundDiff", roundDiff,
+                "netDiff", netDiff,
+                "effort", fmt.Sprintf("%.2f%%", effortPercent),
+        )
+
+        // ═══════════════════════════════════════════════════════════════════════════
 
 	// ═══════════════════════════════════════════════════════════════════════════
 	// STALE RACE CHECK: Re-verify job state before submission.
@@ -1236,6 +1264,7 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
 		block := &database.Block{
 			Height:            share.BlockHeight,
 			NetworkDifficulty: share.NetworkDiff,
+                        Effort:            effortPercent,
 			Status:            "submitting",
 			Type:              "block",
 			Miner:             share.MinerAddress,
@@ -2752,10 +2781,19 @@ func (cp *CoinPool) GetBlockReward() float64 {
 	return 0
 }
 
-// GetPoolEffort returns pool effort (V2 placeholder - returns 0).
+// GetPoolEffort returns current round effort as a percentage.
+// effort = (cumulative share difficulty / network difficulty) × 100
 func (cp *CoinPool) GetPoolEffort() float64 {
-	return 0
+        netDiff := cp.shareValidator.GetNetworkDifficulty()
+        if netDiff <= 0 {
+                return 0
+        }
+        cp.roundDiffMu.Lock()
+        roundDiff := cp.currentRoundDifficulty
+        cp.roundDiffMu.Unlock()
+        return (roundDiff / netDiff) * 100
 }
+
 
 // GetStratumPort returns the stratum port for this coin pool.
 func (cp *CoinPool) GetStratumPort() int {
@@ -2925,10 +2963,18 @@ func (cp *CoinPool) HandleMultiPortShare(share *protocol.Share) *protocol.ShareR
 	// Write accepted share to pipeline and check for block (only on accepted shares)
 	// CRITICAL: Check for block FIRST, before ANY I/O operations
 	// Block submission is the most time-sensitive operation - every millisecond counts!
-	if result.Accepted {
-		if result.IsBlock {
-			cp.handleBlock(share, result)
-		}
+        if result.Accepted {
+                // Accumulate round difficulty for effort tracking
+                if result.ActualDifficulty > 0 {
+                        cp.roundDiffMu.Lock()
+                        cp.currentRoundDifficulty += result.ActualDifficulty
+                        cp.roundDiffMu.Unlock()
+                }
+
+                if result.IsBlock {
+                        cp.handleBlock(share, result)
+                }
+
 		if cp.sharePipeline != nil {
 			cp.sharePipeline.Submit(share)
 		}

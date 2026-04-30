@@ -9490,8 +9490,12 @@ def index():
         actual_diff = hash_to_difficulty(block.get('hash', ''))
         block['minerDifficulty'] = actual_diff
         block['difficulty'] = actual_diff
-        net_diff = block.get('networkDifficulty', 0)
-        block['effort'] = (actual_diff / net_diff) if actual_diff > 0 and net_diff > 0 else 0
+        # Effort is calculated and stored by the stratum at block-find time.
+        # Only compute fallback if DB value is missing (legacy blocks).
+        # Display "---" for those instead of computing a wrong fallback.
+        if block.get('effort') is None or block.get('effort', 0) == 0:
+            block['effort'] = None  # Template displays "---" for None
+
         if not block.get('worker'):
             block['worker'] = block.get('source', '')
 
