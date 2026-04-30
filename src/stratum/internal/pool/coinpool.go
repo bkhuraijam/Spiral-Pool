@@ -1069,10 +1069,18 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
         cp.roundDiffMu.Unlock()
 
         netDiff := share.NetworkDiff
+        // FBTB fix: when getdifficulty returns 1 (indexing provider cycle),
+        // use the cached mining difficulty from the validator instead.
+        if netDiff <= 1 {
+                if cachedDiff := cp.shareValidator.GetNetworkDifficulty(); cachedDiff > 1 {
+                        netDiff = cachedDiff
+                }
+        }
         var effortPercent float64
         if netDiff > 0 && roundDiff > 0 {
                 effortPercent = (roundDiff / netDiff) * 100
         }
+
 
         cp.logger.Infow("Block effort calculated",
                 "height", share.BlockHeight,
@@ -1263,7 +1271,7 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
 		// CRASH SAFETY: Record block with status="submitting" in DB BEFORE submit
 		block := &database.Block{
 			Height:            share.BlockHeight,
-			NetworkDifficulty: share.NetworkDiff,
+			NetworkDifficulty: netDiff,  // Uses corrected difficulty for FBTC,
                         Effort:            effortPercent,
 			Status:            "submitting",
 			Type:              "block",
