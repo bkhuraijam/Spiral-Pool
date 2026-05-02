@@ -999,6 +999,7 @@ lifetime_stats = {
     "total_pool_shares": 0,
     "total_blocks": 0,
     "best_share_difficulty": 0,
+    "per_coin_best_diff": {},  # {"FBTC": 502490009.06, "BCH": 106014.10, ...}
     "uptime_start": None,
     "total_runtime_seconds": 0
 }
@@ -9223,6 +9224,16 @@ def fetch_all_miners():
             if current_best > lifetime_best:
                 # Store as formatted string for display consistency
                 lifetime_stats["best_share_difficulty"] = str(current_best)
+
+            # Update per-coin all-time best share difficulty
+            _per_coin = pool_stats_cache.get("per_coin", {})
+            _per_coin_best = lifetime_stats.get("per_coin_best_diff", {})
+            for _coin_sym, _coin_data in _per_coin.items():
+                _coin_best = float(_coin_data.get("best_share_diff", 0))
+                if _coin_best > float(str(_per_coin_best.get(_coin_sym, "0")).replace(",", "")):
+                    _per_coin_best[_coin_sym] = str(_coin_best)
+            lifetime_stats["per_coin_best_diff"] = _per_coin_best
+
         except (ValueError, TypeError, AttributeError):
             pass
 

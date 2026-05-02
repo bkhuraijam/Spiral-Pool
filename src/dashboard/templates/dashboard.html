@@ -4484,6 +4484,7 @@
         let _lastSharesRate = 0;
         let _selectedStatsCoin = 'all';
         let _lastPerCoinStats = {};  // cached per-coin data from API
+        let _lastLifetimeStats = {};  // cached lifetime stats from API
 
         function changeStatsCoin(value) {
             _selectedStatsCoin = value;
@@ -4846,8 +4847,15 @@
                     ? ((coinRejected / (coinAccepted + coinRejected)) * 100).toFixed(2)
                     : 0;
                 document.getElementById('reject-rate').textContent = `Rejected: ${coinRejectRate}%`;
+
                 // Best Share Diff (per-coin, session best)
                 document.getElementById('best-diff').textContent = formatDifficulty(coinData.best_share_diff || 0);
+
+                // All-time Best Share Diff (per-coin)
+                const perCoinBest = _lastLifetimeStats.per_coin_best_diff || {};
+                const allTimeBest = perCoinBest[symbol] || 0;
+                document.getElementById('best-diff-alltime').textContent = formatDifficulty(allTimeBest);
+
  
                 // Last Block Found (per-coin)
                 if (coinData.last_block_time) {
@@ -8089,6 +8097,7 @@
             const miners = data.miners || {};
             const totals = data.totals || {};
             const lifetime = data.lifetime || {};
+            _lastLifetimeStats = lifetime;
             const blockReward = data.block_reward || {};
 
             // Merge per-miner tags into miner entries
@@ -8396,8 +8405,12 @@
             }
 
             // Update all-time best difficulty
+            // Per-coin all-time best when a coin is selected
+            const allTimeBest = (_userSelectedCoin && lifetime.per_coin_best_diff && lifetime.per_coin_best_diff[_userSelectedCoin])
+                ? lifetime.per_coin_best_diff[_userSelectedCoin]
+                : lifetime.best_share_difficulty;
             document.getElementById('best-diff-alltime').textContent =
-                formatDifficulty(lifetime.best_share_difficulty);
+                formatDifficulty(allTimeBest);
 
             // Pool-connected miners (stratum only — actually submitting shares)
             const poolConnected = data.pool_connected_miners || 0;
