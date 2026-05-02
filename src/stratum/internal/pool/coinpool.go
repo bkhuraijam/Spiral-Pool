@@ -136,6 +136,9 @@ type CoinPool struct {
         // Per-coin accepted share counter (exposed via API)
         acceptedShareCount atomic.Int64
 
+        // Per-coin best share difficulty (exposed via API)
+        bestShareDiffBits atomic.Uint64 // stores float64 as bits for CAS
+
 	// Multi-port job listener: called when job manager produces a new job,
 	// allowing the multi-port server to relay block templates to its miners.
 	// Set via SetMultiPortJobListener; read inside the job callback closure.
@@ -888,6 +891,18 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
 			// This shows the true "best" share based on how hard the hash was to find
 			if result.Accepted && result.ActualDifficulty > 0 {
 				cp.metricsServer.UpdateBestShareDiff(result.ActualDifficulty)
+                                // Update per-coin best share difficulty (CAS loop)
+                                for {
+                                        oldBits := cp.bestShareDiffBits.Load()
+                                        oldDiff := math.Float64frombits(oldBits)
+                                        if result.ActualDifficulty <= oldDiff {
+                                                break
+                                        }
+                                        newBits := math.Float64bits(result.ActualDifficulty)
+                                        if cp.bestShareDiffBits.CompareAndSwap(oldBits, newBits) {
+                                                break
+                                        }
+                                }
 			}
 		}
 	}
@@ -2820,6 +2835,11 @@ func (cp *CoinPool) GetRejectedShares() int64 {
         return int64(stats.Rejected)
 }
 
+// GetBestShareDiff returns the highest share difficulty for this coin pool since startup.
+func (cp *CoinPool) GetBestShareDiff() float64 {
+        return math.Float64frombits(cp.bestShareDiffBits.Load())
+}
+
 
 // GetStratumPort returns the stratum port for this coin pool.
 func (cp *CoinPool) GetStratumPort() int {
@@ -2975,9 +2995,21 @@ func (cp *CoinPool) HandleMultiPortShare(share *protocol.Share) *protocol.ShareR
 			cp.metricsServer.RecordShare(false, result.RejectReason)
 		} else {
 			cp.metricsServer.RecordShare(result.Accepted, result.RejectReason)
-			if result.Accepted && result.ActualDifficulty > 0 {
-				cp.metricsServer.UpdateBestShareDiff(result.ActualDifficulty)
-			}
+                        if result.Accepted && result.ActualDifficulty > 0 {
+                                cp.metricsServer.UpdateBestShareDiff(result.ActualDifficulty)
+                                // Update per-coin best share difficulty (CAS loop)
+                                for {
+                                        oldBits := cp.bestShareDiffBits.Load()
+                                        oldDiff := math.Float64frombits(oldBits)
+                                        if result.ActualDifficulty <= oldDiff {
+                                                break
+                                        }
+                                        newBits := math.Float64bits(result.ActualDifficulty)
+                                        if cp.bestShareDiffBits.CompareAndSwap(oldBits, newBits) {
+                                                break
+                                        }
+                                }
+                        }
 		}
 	}
 

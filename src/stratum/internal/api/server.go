@@ -138,6 +138,7 @@ type StatsProvider interface {
 	GetPoolEffort() float64
         GetAcceptedShares() int64
         GetRejectedShares() int64
+        GetBestShareDiff() float64
 }
 
 // RouterProfile represents difficulty settings for a miner class.
@@ -1845,6 +1846,7 @@ type PoolStatsInfo struct {
 	PoolEffort            float64 `json:"poolEffort"`
         AcceptedShares        int64   `json:"acceptedShares"`
         RejectedShares        int64   `json:"rejectedShares"`
+        BestShareDiff         float64 `json:"bestShareDiff"`
 }
 
 type PaymentInfo struct {

@@ -4846,6 +4846,8 @@
                     ? ((coinRejected / (coinAccepted + coinRejected)) * 100).toFixed(2)
                     : 0;
                 document.getElementById('reject-rate').textContent = `Rejected: ${coinRejectRate}%`;
+                // Best Share Diff (per-coin, session best)
+                document.getElementById('best-diff').textContent = formatDifficulty(coinData.best_share_diff || 0);
  
                 // Last Block Found (per-coin)
                 if (coinData.last_block_time) {
@@ -8339,7 +8341,10 @@
                 : (data.pool_rejected_shares || 0);
 
             const poolBlocks = data.pool_blocks_found || 0;
-            const poolBestDiff = data.pool_best_share_diff || 0;
+            // Use per-coin best diff when a specific coin is selected
+            const poolBestDiff = (_userSelectedCoin && resolvedCoinData && resolvedCoinData.best_share_diff > 0)
+                ? resolvedCoinData.best_share_diff
+                : (data.pool_best_share_diff || 0);
 
             document.getElementById('total-shares').textContent = formatNumber(poolAccepted);
             const rejectRate = poolAccepted + poolRejected > 0

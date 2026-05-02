@@ -110,6 +110,7 @@ type Pool struct {
 	cachedBlockReward       float64
 	cachedPoolEffort        float64
         acceptedShareCount      atomic.Int64
+        bestShareDiffBits       atomic.Uint64 // stores float64 as bits for CAS
 	lastBlockFoundAt        time.Time
 	statsMu                 sync.RWMutex
 
@@ -1317,7 +1318,19 @@ func (p *Pool) handleShare(share *protocol.Share) *protocol.ShareResult {
 			// This shows the true "best" share based on how hard the hash was to find
 			if result.Accepted && result.ActualDifficulty > 0 {
 				p.metricsServer.UpdateBestShareDiff(result.ActualDifficulty)
-			}
+                                // Update per-coin best share difficulty (CAS loop)
+                                for {
+                                        oldBits := p.bestShareDiffBits.Load()
+                                        oldDiff := math.Float64frombits(oldBits)
+                                        if result.ActualDifficulty <= oldDiff {
+                                                break
+                                        }
+                                        newBits := math.Float64bits(result.ActualDifficulty)
+                                        if p.bestShareDiffBits.CompareAndSwap(oldBits, newBits) {
+                                                break
+                                        }
+                                }
+                        }
 		}
 	}
 
@@ -4217,6 +4230,12 @@ func (p *Pool) GetRejectedShares() int64 {
         stats := p.shareValidator.Stats()
         return int64(stats.Rejected)
 }
+
+// GetBestShareDiff returns the highest share difficulty for this pool since startup.
+func (p *Pool) GetBestShareDiff() float64 {
+        return math.Float64frombits(p.bestShareDiffBits.Load())
+}
+
 
 // getAlgoBlockTime returns the per-algorithm target block time in seconds.
 // For multi-algo coins like DGB (5 algos, 15s chain time), this returns

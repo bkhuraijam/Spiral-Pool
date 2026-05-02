@@ -132,6 +132,7 @@ type CoinPoolProvider interface {
 	GetPoolEffort() float64
         GetAcceptedShares() int64
         GetRejectedShares() int64
+        GetBestShareDiff() float64
 	GetStratumPort() int
 	GetActiveConnections() []WorkerConnection
 	// Extended V2 methods for full API parity with V1
@@ -295,6 +296,7 @@ func (s *ServerV2) handlePools(w http.ResponseWriter, r *http.Request) {
 				PoolEffort:            provider.GetPoolEffort(),
                                 AcceptedShares:        provider.GetAcceptedShares(),
                                 RejectedShares:        provider.GetRejectedShares(),
+                                BestShareDiff:         provider.GetBestShareDiff(),
 			},
 			PaymentProcessing: PaymentInfo{
 				Enabled: true,
@@ -469,6 +471,7 @@ func (s *ServerV2) handlePoolInfo(w http.ResponseWriter, r *http.Request, provid
 			"poolEffort":        provider.GetPoolEffort(),
                         "acceptedShares":    provider.GetAcceptedShares(),
                         "rejectedShares":    provider.GetRejectedShares(),
+                        "bestShareDiff":     provider.GetBestShareDiff(),
 		},
 	}
 
@@ -496,6 +499,7 @@ func (s *ServerV2) handlePoolStats(w http.ResponseWriter, r *http.Request, provi
 		"poolEffort":          provider.GetPoolEffort(),
                 "acceptedShares":      provider.GetAcceptedShares(),
                 "rejectedShares":      provider.GetRejectedShares(),
+                "bestShareDiff":       provider.GetBestShareDiff(),
 	}
 
 	s.writeJSON(w, response)
