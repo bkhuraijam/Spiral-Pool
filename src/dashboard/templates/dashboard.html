@@ -4836,6 +4836,17 @@
                 const blocksEl = document.getElementById('blocks-found');
                 if (blocksEl) blocksEl.textContent = coinData.blocks || 0;
 
+                // Accepted Shares (per-coin, always update)
+                document.getElementById('total-shares').textContent = formatNumber(coinData.accepted_shares || 0);
+               
+                // Rejected Shares (per-coin, recalculate reject rate)
+                const coinAccepted = coinData.accepted_shares || 0;
+                const coinRejected = coinData.rejected_shares || 0;
+                const coinRejectRate = coinAccepted + coinRejected > 0
+                    ? ((coinRejected / (coinAccepted + coinRejected)) * 100).toFixed(2)
+                    : 0;
+                document.getElementById('reject-rate').textContent = `Rejected: ${coinRejectRate}%`;
+ 
                 // Last Block Found (per-coin)
                 if (coinData.last_block_time) {
                     updateLastBlockDisplay(coinData.last_block_time, coinData.last_block_finder, coinData.last_block_height);
@@ -8317,8 +8328,16 @@
             // Use POOL share counts (from Prometheus) instead of miner-reported shares
             // Pool counts are authoritative - they represent actual shares validated by the pool
             // Miner counts (totals.accepted_shares) are self-reported by mining devices
-            const poolAccepted = data.pool_accepted_shares || 0;
-            const poolRejected = data.pool_rejected_shares || 0;
+            // Use per-coin accepted shares when a specific coin is selected
+            const poolAccepted = (_userSelectedCoin && resolvedCoinData && resolvedCoinData.accepted_shares !== undefined)
+                ? resolvedCoinData.accepted_shares
+                : (data.pool_accepted_shares || 0);
+
+            // Use per-coin rejected shares when a specific coin is selected
+            const poolRejected = (_userSelectedCoin && resolvedCoinData && resolvedCoinData.rejected_shares !== undefined)
+                ? resolvedCoinData.rejected_shares
+                : (data.pool_rejected_shares || 0);
+
             const poolBlocks = data.pool_blocks_found || 0;
             const poolBestDiff = data.pool_best_share_diff || 0;
 

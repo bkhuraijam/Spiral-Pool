@@ -109,6 +109,7 @@ type Pool struct {
 	cachedBlocksFound       int64
 	cachedBlockReward       float64
 	cachedPoolEffort        float64
+        acceptedShareCount      atomic.Int64
 	lastBlockFoundAt        time.Time
 	statsMu                 sync.RWMutex
 
@@ -1333,6 +1334,8 @@ func (p *Pool) handleShare(share *protocol.Share) *protocol.ShareResult {
 	}
 
 	if result.Accepted {
+                 // Track accepted share count for per-coin stats
+                p.acceptedShareCount.Add(1)
 		// CRITICAL: Check for block FIRST, before ANY I/O operations
 		// Block submission is the most time-sensitive operation - every millisecond counts!
 		if result.IsBlock {
@@ -4201,6 +4204,18 @@ func (p *Pool) GetPoolEffort() float64 {
 	p.statsMu.RLock()
 	defer p.statsMu.RUnlock()
 	return p.cachedPoolEffort
+}
+
+// GetAcceptedShares returns the total accepted shares for this pool since startup.
+func (p *Pool) GetAcceptedShares() int64 {
+        stats := p.shareValidator.Stats()
+        return int64(stats.Accepted)
+}
+
+// GetRejectedShares returns the total rejected shares for this pool since startup.
+func (p *Pool) GetRejectedShares() int64 {
+        stats := p.shareValidator.Stats()
+        return int64(stats.Rejected)
 }
 
 // getAlgoBlockTime returns the per-algorithm target block time in seconds.

@@ -133,6 +133,9 @@ type CoinPool struct {
         currentRoundDifficulty float64
         roundDiffMu           sync.Mutex
 
+        // Per-coin accepted share counter (exposed via API)
+        acceptedShareCount atomic.Int64
+
 	// Multi-port job listener: called when job manager produces a new job,
 	// allowing the multi-port server to relay block templates to its miners.
 	// Set via SetMultiPortJobListener; read inside the job callback closure.
@@ -908,6 +911,9 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
                         cp.currentRoundDifficulty += result.ActualDifficulty
                         cp.roundDiffMu.Unlock()
                 }
+
+                // Track accepted share count for per-coin stats
+                cp.acceptedShareCount.Add(1)
 
 		// CRITICAL: Check for block FIRST, before ANY I/O operations
 		// Block submission is the most time-sensitive operation - every millisecond counts!
@@ -2800,6 +2806,18 @@ func (cp *CoinPool) GetPoolEffort() float64 {
         roundDiff := cp.currentRoundDifficulty
         cp.roundDiffMu.Unlock()
         return (roundDiff / netDiff) * 100
+}
+
+// GetAcceptedShares returns the total accepted shares for this coin pool since startup.
+func (cp *CoinPool) GetAcceptedShares() int64 {
+        stats := cp.shareValidator.Stats()
+        return int64(stats.Accepted)
+}
+
+// GetRejectedShares returns the total rejected shares for this coin pool since startup.
+func (cp *CoinPool) GetRejectedShares() int64 {
+        stats := cp.shareValidator.Stats()
+        return int64(stats.Rejected)
 }
 
 

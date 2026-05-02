@@ -1883,6 +1883,8 @@ def fetch_pool_stats():
                             "hashrate": hashrate,
                             "miners": miners,
                             "shares": shares,
+                            "accepted_shares": stats.get("acceptedShares", 0),
+                            "rejected_shares": stats.get("rejectedShares", 0),
                             "difficulty": pool_net.get("networkDifficulty", stats.get("networkDifficulty", 0)),
                             "network_hashrate": pool_net.get("networkHashrate", stats.get("networkHashrate", 0)),
                             "block_height": pool_net.get("blockHeight", stats.get("blockHeight", 0)),

@@ -130,6 +130,8 @@ type CoinPoolProvider interface {
 	GetBlocksFound() int64
 	GetBlockReward() float64
 	GetPoolEffort() float64
+        GetAcceptedShares() int64
+        GetRejectedShares() int64
 	GetStratumPort() int
 	GetActiveConnections() []WorkerConnection
 	// Extended V2 methods for full API parity with V1
@@ -291,6 +293,8 @@ func (s *ServerV2) handlePools(w http.ResponseWriter, r *http.Request) {
 				BlocksFound:           provider.GetBlocksFound(),
 				BlockReward:           provider.GetBlockReward(),
 				PoolEffort:            provider.GetPoolEffort(),
+                                AcceptedShares:        provider.GetAcceptedShares(),
+                                RejectedShares:        provider.GetRejectedShares(),
 			},
 			PaymentProcessing: PaymentInfo{
 				Enabled: true,
@@ -463,6 +467,8 @@ func (s *ServerV2) handlePoolInfo(w http.ResponseWriter, r *http.Request, provid
 			"blocksFound":       provider.GetBlocksFound(),
 			"blockReward":       provider.GetBlockReward(),
 			"poolEffort":        provider.GetPoolEffort(),
+                        "acceptedShares":    provider.GetAcceptedShares(),
+                        "rejectedShares":    provider.GetRejectedShares(),
 		},
 	}
 
@@ -488,6 +494,8 @@ func (s *ServerV2) handlePoolStats(w http.ResponseWriter, r *http.Request, provi
 		"blocksFound":         provider.GetBlocksFound(),
 		"blockReward":         provider.GetBlockReward(),
 		"poolEffort":          provider.GetPoolEffort(),
+                "acceptedShares":      provider.GetAcceptedShares(),
+                "rejectedShares":      provider.GetRejectedShares(),
 	}
 
 	s.writeJSON(w, response)

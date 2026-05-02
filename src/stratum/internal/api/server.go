@@ -136,6 +136,8 @@ type StatsProvider interface {
 	GetBlocksFound() int64
 	GetBlockReward() float64
 	GetPoolEffort() float64
+        GetAcceptedShares() int64
+        GetRejectedShares() int64
 }
 
 // RouterProfile represents difficulty settings for a miner class.
@@ -432,6 +434,7 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 					BlocksFound:       blocksFound,
 					BlockReward:       blockReward,
 					PoolEffort:        poolEffort,
+                                        AcceptedShares:    s.statsProvider.GetAcceptedShares(),
 				},
 				PaymentProcessing: PaymentInfo{
 					Enabled:        true,
@@ -1840,6 +1843,8 @@ type PoolStatsInfo struct {
 	BlocksFound           int64   `json:"blocksFound"`
 	BlockReward           float64 `json:"blockReward"`
 	PoolEffort            float64 `json:"poolEffort"`
+        AcceptedShares        int64   `json:"acceptedShares"`
+        RejectedShares        int64   `json:"rejectedShares"`
 }
 
 type PaymentInfo struct {

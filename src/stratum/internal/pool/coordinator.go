@@ -1666,6 +1666,8 @@ func (a *auxPoolProvider) GetNetworkHashrate() float64   { return 0 }
 func (a *auxPoolProvider) GetBlocksFound() int64         { return 0 }
 func (a *auxPoolProvider) GetBlockReward() float64       { return 0 }
 func (a *auxPoolProvider) GetPoolEffort() float64        { return 0 }
+func (a *auxPoolProvider) GetAcceptedShares() int64      { return 0 }
+func (a *auxPoolProvider) GetRejectedShares() int64      { return 0 }
 func (a *auxPoolProvider) GetStratumPort() int           { return 0 }
 func (a *auxPoolProvider) GetActiveConnections() []api.WorkerConnection {
 	return a.parent.GetActiveConnections()
