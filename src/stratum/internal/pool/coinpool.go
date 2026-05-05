@@ -2829,6 +2829,15 @@ func (cp *CoinPool) initBlockStats(ctx context.Context) {
 	cp.logger.Infow("Loaded block stats from database", "total", total,
 		"pending", blockStats.Pending, "confirmed", blockStats.Confirmed,
 		"orphaned", blockStats.Orphaned, "paid", blockStats.Paid)
+        // Initialize lastBlockTime from the most recent block in the database.
+        // This ensures time-based effort is accurate from the first block after restart.
+        if lastBlock, err := postgresDB.GetLastBlockFoundTime(ctx); err == nil {
+                cp.lastBlockTimeMu.Lock()
+                cp.lastBlockTime = lastBlock
+                cp.lastBlockTimeMu.Unlock()
+                cp.logger.Infow("Initialized lastBlockTime from database", "lastBlockTime", lastBlock)
+        }
+
 }
 
 // GetBlockReward returns the current block reward from the job template.
