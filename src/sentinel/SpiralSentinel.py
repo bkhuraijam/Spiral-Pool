@@ -1130,11 +1130,11 @@ DEFAULT_CONFIG = {
     "infra_wal_errors_alert": True,            # Alert on WAL write/commit errors
     "infra_share_loss_alert": True,            # Alert on share batch drops
     # Currency display settings (defaults match installer)
-    "report_currency": "CAD",                  # Any supported currency code
-    "power_currency": "CAD",                   # Currency for power costs
+    "report_currency": "USD",                  # Any supported currency code
+    "power_currency": "USD",                   # Currency for power costs
     "power_rate_kwh": 0.12,                    # Electricity rate per kWh
     # Timezone for reports and alerts (internal timestamps always use UTC)
-    "display_timezone": "America/New_York",    # IANA timezone for user-facing times
+    "display_timezone": "Asia/Kokkata",    # IANA timezone for user-facing times
     # Alert theme: "cyberpunk" (skulls, choom, edgy) or "professional" (clean, enterprise)
     "alert_theme": "cyberpunk",
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -1153,7 +1153,7 @@ DEFAULT_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════════════
     # NETWORK DIFFICULTY CHANGE ALERTS — Alert on significant difficulty swings
     # ═══════════════════════════════════════════════════════════════════════════════
-    "difficulty_alert_enabled": True,      # Alert on large difficulty changes
+    "difficulty_alert_enabled": False,      # Disabled — DGB/FBTC rotate difficulties by design
     "difficulty_alert_threshold_pct": 25,  # Alert when difficulty changes this % from baseline (sub-threshold changes update baseline; above-threshold preserves it until alert fires)
     # ═══════════════════════════════════════════════════════════════════════════════
     # DISK SPACE MONITORING — Alert when disk usage exceeds thresholds

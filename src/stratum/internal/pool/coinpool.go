@@ -139,6 +139,14 @@ type CoinPool struct {
         // Per-coin best share difficulty (exposed via API)
         bestShareDiffBits atomic.Uint64 // stores float64 as bits for CAS
 
+        // Last known good network difficulty (> 1) for FBTC indexing provider fallback
+        lastGoodNetworkDiff float64
+        lastGoodDiffMu      sync.Mutex
+
+        // Time-based effort tracking: timestamp of last block found
+        lastBlockTime   time.Time
+        lastBlockTimeMu sync.Mutex
+
 	// Multi-port job listener: called when job manager produces a new job,
 	// allowing the multi-port server to relay block templates to its miners.
 	// Set via SetMultiPortJobListener; read inside the job callback closure.
@@ -1089,24 +1097,31 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
         cp.currentRoundDifficulty = 0 // Reset for next round
         cp.roundDiffMu.Unlock()
 
-        netDiff := share.NetworkDiff
-        // FBTB fix: when getdifficulty returns 1 (indexing provider cycle),
-        // use the cached mining difficulty from the validator instead.
-        if netDiff <= 1 {
-                if cachedDiff := cp.shareValidator.GetNetworkDifficulty(); cachedDiff > 1 {
-                        netDiff = cachedDiff
+        // Time-based effort: actual time to find vs expected time to find
+        netDiff := cp.GetMiningDifficulty()
+        poolHashrate := cp.GetHashrate()
+        now := time.Now().UTC()
+
+        cp.lastBlockTimeMu.Lock()
+        lastBlock := cp.lastBlockTime
+        cp.lastBlockTime = now
+        cp.lastBlockTimeMu.Unlock()
+
+        var effortPercent float64
+        if !lastBlock.IsZero() && netDiff > 0 && poolHashrate > 0 {
+                actualSeconds := now.Sub(lastBlock).Seconds()
+                // Expected time = (difficulty × 2^32) / hashrate
+                expectedSeconds := (netDiff * 4294967296) / poolHashrate
+                if expectedSeconds > 0 {
+                        effortPercent = (actualSeconds / expectedSeconds) * 100
                 }
         }
-        var effortPercent float64
-        if netDiff > 0 && roundDiff > 0 {
-                effortPercent = (roundDiff / netDiff) * 100
-        }
-
 
         cp.logger.Infow("Block effort calculated",
                 "height", share.BlockHeight,
-                "roundDiff", roundDiff,
                 "netDiff", netDiff,
+                "poolHashrate", poolHashrate,
+                "roundDiff", roundDiff,
                 "effort", fmt.Sprintf("%.2f%%", effortPercent),
         )
 
@@ -2097,6 +2112,11 @@ func (cp *CoinPool) Start(ctx context.Context) error {
                 cp.logger.Warnw("Failed to get initial network difficulty (will retry in loop)", "error", diffErr)
         } else {
                 cp.shareValidator.SetNetworkDifficulty(initialDiff)
+                if initialDiff > 1 && initialDiff < 1e12 {
+                        cp.lastGoodDiffMu.Lock()
+                        cp.lastGoodNetworkDiff = initialDiff
+                        cp.lastGoodDiffMu.Unlock()
+                }
                 cp.logger.Infow("Initial network difficulty set before stratum start", "difficulty", initialDiff, "coin", cp.coinSymbol)
         }
 
@@ -2576,8 +2596,14 @@ func (cp *CoinPool) difficultyLoop(ctx context.Context) {
 	if err != nil {
 		cp.logger.Warnw("Failed to get initial network difficulty", "error", err)
 	} else {
-		cp.shareValidator.SetNetworkDifficulty(diff)
-		cp.logger.Infow("Initial network difficulty set", "difficulty", diff, "coin", cp.coinSymbol)
+                cp.shareValidator.SetNetworkDifficulty(diff)
+                if diff > 1 && diff < 1e12 {
+                        cp.lastGoodDiffMu.Lock()
+                        cp.lastGoodNetworkDiff = diff
+                        cp.lastGoodDiffMu.Unlock()
+                }
+                cp.logger.Infow("Initial network difficulty set", "difficulty", diff, "coin", cp.coinSymbol)
+
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -2593,7 +2619,13 @@ func (cp *CoinPool) difficultyLoop(ctx context.Context) {
 				cp.logger.Warnw("Failed to get network difficulty", "error", err)
 				continue
 			}
-			cp.shareValidator.SetNetworkDifficulty(diff)
+                        cp.shareValidator.SetNetworkDifficulty(diff)
+                        if diff > 1 && diff < 1e12 {
+                                cp.lastGoodDiffMu.Lock()
+                                cp.lastGoodNetworkDiff = diff
+                                cp.lastGoodDiffMu.Unlock()
+                        }
+
 			cp.logger.Debugw("Network difficulty updated", "difficulty", diff, "coin", cp.coinSymbol)
 		}
 	}
@@ -2811,17 +2843,27 @@ func (cp *CoinPool) GetBlockReward() float64 {
 }
 
 // GetPoolEffort returns current round effort as a percentage.
-// effort = (cumulative share difficulty / network difficulty) × 100
+// effort = (elapsed time since last block / expected time to find block) × 100
 func (cp *CoinPool) GetPoolEffort() float64 {
-        netDiff := cp.shareValidator.GetNetworkDifficulty()
-        if netDiff <= 0 {
+        netDiff := cp.GetMiningDifficulty()
+        poolHashrate := cp.GetHashrate()
+        if netDiff <= 0 || poolHashrate <= 0 {
                 return 0
         }
-        cp.roundDiffMu.Lock()
-        roundDiff := cp.currentRoundDifficulty
-        cp.roundDiffMu.Unlock()
-        return (roundDiff / netDiff) * 100
+        cp.lastBlockTimeMu.Lock()
+        lastBlock := cp.lastBlockTime
+        cp.lastBlockTimeMu.Unlock()
+        if lastBlock.IsZero() {
+                return 0
+        }
+        elapsedSeconds := time.Since(lastBlock).Seconds()
+        expectedSeconds := (netDiff * 4294967296) / poolHashrate
+        if expectedSeconds <= 0 {
+                return 0
+        }
+        return (elapsedSeconds / expectedSeconds) * 100
 }
+
 
 // GetAcceptedShares returns the total accepted shares for this coin pool since startup.
 func (cp *CoinPool) GetAcceptedShares() int64 {
@@ -2840,6 +2882,22 @@ func (cp *CoinPool) GetBestShareDiff() float64 {
         return math.Float64frombits(cp.bestShareDiffBits.Load())
 }
 
+// GetMiningDifficulty returns the correct mining cycle network difficulty.
+// For FBTC: filters out indexing provider (1) and merged mining (>1T) cycles.
+// For other coins: returns the network difficulty directly.
+func (cp *CoinPool) GetMiningDifficulty() float64 {
+        diff := cp.shareValidator.GetNetworkDifficulty()
+        if cp.coinSymbol == "FBTC" {
+                if diff <= 1 || diff > 1e12 {
+                        cp.lastGoodDiffMu.Lock()
+                        if cp.lastGoodNetworkDiff > 1 {
+                                diff = cp.lastGoodNetworkDiff
+                        }
+                        cp.lastGoodDiffMu.Unlock()
+                }
+        }
+        return diff
+}
 
 // GetStratumPort returns the stratum port for this coin pool.
 func (cp *CoinPool) GetStratumPort() int {

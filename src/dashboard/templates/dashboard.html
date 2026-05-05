@@ -4341,6 +4341,7 @@
                 'connected_miners': connectedMiners
             };
 
+
             Object.keys(statsHistoryConfig).forEach(period => {
                 const config = statsHistoryConfig[period];
                 Object.keys(values).forEach(metric => {
@@ -4375,6 +4376,7 @@
                     'blocks_found': s.blocks || 0,
                     'shares_rate': s.shares || 0
                 };
+
                 Object.keys(statsHistoryConfig).forEach(period => {
                     const config = statsHistoryConfig[period];
                     Object.keys(coinValues).forEach(metric => {
@@ -4909,6 +4911,7 @@
             _selectedStatsCoin = symbol;
             updateAllStatsCharts();
             applyStatsCoinFilter();
+            fetchDailyBlocks();
 
             // Update all coin symbol displays and earnings
             updateCoinSymbols();
@@ -8561,6 +8564,7 @@
             // Also fetch health data, ETB, leaderboard, and smart port status
             fetchHealthData();
             fetchETBData();
+            fetchDailyBlocks();
             fetchLeaderboard();
             fetchSmartPortStatus();
         }
@@ -8619,6 +8623,34 @@
                 console.error('Failed to fetch ETB data:', e);
             }
         }
+
+        async function fetchDailyBlocks() {
+            try {
+                const coinParam = _userSelectedCoin ? `?coin=${_userSelectedCoin}` : '';
+                const response = await fetch(`/api/blocks/daily${coinParam}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                if (!data.success || !data.daily) return;
+
+                const chart = statsCharts['blocks_found'];
+                if (!chart) return;
+
+                const labels = data.daily.map(d => d.date.slice(5)); // "MM-DD"
+                const values = data.daily.map(d => d.blocks);
+
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = values;
+                chart.update('none');
+
+                // Update value display
+                const total = values.reduce((a, b) => a + b, 0);
+                const el = document.getElementById('chart-val-blocks-found');
+                if (el) el.textContent = total;
+            } catch (e) {
+                console.warn('Failed to fetch daily blocks:', e);
+            }
+        }
+
 
         // Fetch and render Top Block Finders
         async function fetchLeaderboard() {

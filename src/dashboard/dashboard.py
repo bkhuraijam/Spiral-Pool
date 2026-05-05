@@ -16453,6 +16453,49 @@ def get_block_history():
         "miner_stats": miner_stats
     })
 
+@app.route('/api/blocks/daily', methods=['GET'])
+@api_key_or_login_required
+def get_daily_blocks():
+    """Get daily block counts for chart display (all coins)."""
+    from collections import defaultdict
+
+    # Fetch blocks from ALL enabled pools
+    all_blocks = []
+    coins_info = get_enabled_coins()
+    enabled_coins = coins_info.get("enabled", [])
+    primary_coin = coins_info.get("primary", "")
+
+    for coin_symbol in enabled_coins:
+        pool_id = f"{coin_symbol.lower()}_sha256_1"
+        try:
+            resp = requests.get(f"{POOL_API_URL}/api/pools/{pool_id}/blocks", timeout=5)
+            if resp.status_code == 200:
+                blocks = resp.json()
+                for b in blocks:
+                    b["coin"] = coin_symbol
+                all_blocks.extend(blocks)
+        except Exception:
+            pass
+
+    # Optional coin filter
+    coin_param = request.args.get('coin', '').upper()
+
+    daily_counts = defaultdict(int)
+    for block in all_blocks:
+        block_coin = block.get("coin", primary_coin).upper()
+        if coin_param and block_coin != coin_param:
+            continue
+        created = block.get("created", "")
+        date_str = str(created)[:10] if created else "unknown"
+        daily_counts[date_str] += 1
+
+    # Build sorted response (last 30 days)
+    dates = sorted(daily_counts.keys(), reverse=True)[:30]
+    result = [{"date": d, "blocks": daily_counts[d]} for d in reversed(dates)]
+
+    return jsonify({"success": True, "daily": result})
+
+
 
 @app.route('/api/blocks/leaderboard', methods=['GET'])
 @api_key_or_login_required
