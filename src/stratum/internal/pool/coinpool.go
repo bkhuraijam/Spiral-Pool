@@ -2831,7 +2831,7 @@ func (cp *CoinPool) initBlockStats(ctx context.Context) {
 		"orphaned", blockStats.Orphaned, "paid", blockStats.Paid)
         // Initialize lastBlockTime from the most recent block in the database.
         // This ensures time-based effort is accurate from the first block after restart.
-        if lastBlock, err := postgresDB.GetLastBlockFoundTime(ctx); err == nil {
+        if lastBlock, err := postgresDB.GetLastBlockFoundTimeForPool(ctx, cp.poolID); err == nil {
                 cp.lastBlockTimeMu.Lock()
                 cp.lastBlockTime = lastBlock
                 cp.lastBlockTimeMu.Unlock()

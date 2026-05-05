@@ -835,6 +835,24 @@ func (db *PostgresDB) GetLastBlockFoundTime(ctx context.Context) (time.Time, err
 	return created, nil
 }
 
+// GetLastBlockFoundTimeForPool returns the creation time of the most recently found block
+// for a specific pool. Used by CoinPool to initialize effort calculation on startup.
+func (db *PostgresDB) GetLastBlockFoundTimeForPool(ctx context.Context, poolID string) (time.Time, error) {
+        if !validPoolID.MatchString(poolID) {
+                return time.Time{}, fmt.Errorf("invalid pool ID: %q", poolID)
+        }
+        tableName := fmt.Sprintf("blocks_%s", poolID)
+        query := fmt.Sprintf(`SELECT created FROM %s ORDER BY created DESC LIMIT 1`, tableName)
+
+        var created time.Time
+        err := db.pool.QueryRow(ctx, query).Scan(&created)
+        if err != nil {
+                return time.Time{}, err
+        }
+        return created, nil
+}
+
+
 // InsertPayment records a payment.
 func (db *PostgresDB) InsertPayment(ctx context.Context, payment *Payment) error {
 	query := `
