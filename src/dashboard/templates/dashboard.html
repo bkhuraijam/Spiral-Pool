@@ -4414,6 +4414,8 @@
         // Update all 4 chart displays with current period data
         function updateAllStatsCharts() {
             Object.entries(statsMetrics).forEach(([metricKey, cfg]) => {
+                // Skip blocks_found — managed by fetchDailyBlocks (daily bars, not time-series)
+                if (metricKey === 'blocks_found') return;
                 const chart = statsCharts[metricKey];
                 if (!chart) return;
 
@@ -10374,6 +10376,7 @@ function toggleSection(sectionId) {
             restoreCollapsedStates();  // Restore collapsed section states
             updateViewToggleButton(); // Restore miner view mode (flat/grouped)
             initStatsCharts();
+            fetchDailyBlocks();
             loadSavedHistory();   // Seed charts with server-saved history
             updateCoinSymbols();  // Set initial coin symbols
             fetchCurrencyConfig(); // Load currency display preferences
