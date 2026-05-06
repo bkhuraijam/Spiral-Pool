@@ -416,6 +416,41 @@ coins:
       coingecko_id: null     # Not listed on CoinGecko yet
       explorer_url: "https://explorer.qbitx.org"
 
+  
+  - symbol: XEC
+    name: eCash
+    algorithm: sha256d
+    role: standalone
+
+    network:
+      rpc_port: 9004
+      p2p_port: 8333
+      zmq_port: 28335
+
+    mining:
+      stratum_port: 18338
+      stratum_v2_port: 18339
+      stratum_tls_port: 18340
+
+    address:
+      p2pkh_version: 0x00
+      p2sh_version: 0x05
+      bech32_hrp: null  # eCash uses CashAddr (ecash:q...), not bech32
+
+    chain:
+      genesis_hash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+      block_time: 600
+      coinbase_maturity: 100
+      supports_segwit: false
+      min_coinbase_script_len: 2
+
+    display:
+      full_name: "eCash"
+      short_name: "XEC"
+      coingecko_id: "ecash"
+      explorer_url: "https://explorer.e.cash"
+
+
   # ─────────────────────────────────────────────────────────────────────────────
   # SCRYPT COINS
   # ─────────────────────────────────────────────────────────────────────────────
