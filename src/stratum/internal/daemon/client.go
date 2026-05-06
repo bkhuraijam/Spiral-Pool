@@ -122,6 +122,11 @@ type BlockTemplate struct {
 	Bits                     string      `json:"bits"`
 	Height                   uint64      `json:"height"`
 	DefaultWitnessCommitment string      `json:"default_witness_commitment,omitempty"`
+        // eCash (XEC) specific fields
+        CoinbaseTxn   *CoinbaseTxn `json:"coinbasetxn,omitempty"`
+        RTT           *RTTData     `json:"rtt,omitempty"`
+        SigCheckLimit int          `json:"sigchecklimit,omitempty"`
+
 }
 
 // TxData represents transaction data in a block template.
@@ -138,6 +143,38 @@ type TxData struct {
 type CoinbaseAux struct {
 	Flags string `json:"flags"`
 }
+
+// CoinbaseTxn represents eCash-specific coinbase transaction requirements.
+type CoinbaseTxn struct {
+        MinerFund      *MinerFund      `json:"minerfund,omitempty"`
+        StakingRewards *StakingRewards `json:"stakingrewards,omitempty"`
+}
+
+// MinerFund represents eCash miner fund requirements.
+type MinerFund struct {
+        Addresses    []string `json:"addresses"`
+        MinimumValue int64    `json:"minimumvalue"`
+}
+
+// StakingRewardsScript represents the payout script for staking rewards.
+type StakingRewardsScript struct {
+        Hex string `json:"hex"`
+}
+
+// StakingRewards represents eCash staking reward requirements.
+type StakingRewards struct {
+        PayoutScript StakingRewardsScript `json:"payoutscript"`
+        MinimumValue int64                `json:"minimumvalue"`
+}
+
+// RTTData represents Real Time Targeting data for eCash.
+type RTTData struct {
+        PrevHeaderTime []int64 `json:"prevheadertime"`
+        PrevBits       string  `json:"prevbits"`
+        NodeTime       int64   `json:"nodetime"`
+        NextTarget     string  `json:"nexttarget"`
+}
+
 
 // NetworkInfo represents network status information.
 type NetworkInfo struct {
