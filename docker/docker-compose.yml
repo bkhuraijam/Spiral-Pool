@@ -736,6 +736,9 @@ services:
       - "18335:18335"   # FBTC Stratum V1
       - "18336:18336"   # FBTC Stratum V2 (Noise)
       - "18337:18337"   # FBTC Stratum TLS
+      - "18338:18338"   # XEC Stratum V1
+      - "18339:18339"   # XEC Stratum V2 (Noise)
+      - "18340:18340"   # XEC Stratum TLS
       - "20335:20335"   # QBX Stratum V1
       - "20336:20336"   # QBX Stratum V2 (Noise)
       - "20337:20337"   # QBX Stratum TLS
