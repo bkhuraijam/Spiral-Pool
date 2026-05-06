@@ -821,6 +821,26 @@ func (m *Manager) generateJob(ctx context.Context, template *daemon.BlockTemplat
 		CoinbaseValue:    template.CoinbaseValue,
 		RawPrevBlockHash: template.PreviousBlockHash,
 		NetworkTarget:    template.Target,
+                // eCash RTT data (nil for non-XEC coins)
+                RTTPrevHeaderTime: func() []int64 {
+                        if template.RTT != nil {
+                                return template.RTT.PrevHeaderTime
+                        }
+                        return nil
+                }(),
+                RTTPrevBits: func() string {
+                        if template.RTT != nil {
+                                return template.RTT.PrevBits
+                        }
+                        return ""
+                }(),
+                RTTNextTarget: func() string {
+                        if template.RTT != nil {
+                                return template.RTT.NextTarget
+                        }
+                        return ""
+                }(),
+                RTTBits: template.Bits,
 	}
 
 	// Validate NetworkTarget — empty means block detection falls back to compact bits

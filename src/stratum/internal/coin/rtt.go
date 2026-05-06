@@ -158,6 +158,109 @@ func GetRTTTarget(template *daemon.BlockTemplate, currentTime int64) (*big.Int, 
 	return ComputeRTT(template, currentTime)
 }
 
+// RTTRawData contains raw RTT fields from a Job (avoids daemon import dependency).
+type RTTRawData struct {
+	PrevHeaderTime []int64
+	PrevBits       string
+	NextTarget     string
+	Bits           string
+}
+
+// IsRTTDataValidRaw checks if raw RTT data is usable.
+func IsRTTDataValidRaw(rtt *RTTRawData) bool {
+	if rtt == nil || len(rtt.PrevHeaderTime) < 2 {
+		return false
+	}
+	firstTs := rtt.PrevHeaderTime[0]
+	for i := 1; i < len(rtt.PrevHeaderTime); i++ {
+		if rtt.PrevHeaderTime[i] != firstTs {
+			return true
+		}
+	}
+	return false
+}
+
+// ComputeRTTRaw computes RTT from raw fields.
+func ComputeRTTRaw(rtt *RTTRawData, currentTime int64) (*big.Int, error) {
+	if rtt == nil || len(rtt.PrevHeaderTime) == 0 {
+		return nil, fmt.Errorf("no RTT data")
+	}
+
+	prevTarget, err := rttCompactToBig(rtt.PrevBits)
+	if err != nil {
+		return nil, fmt.Errorf("parsing prevbits '%s': %w", rtt.PrevBits, err)
+	}
+
+	nextTarget, err := rttCompactToBig(rtt.Bits)
+	if err != nil {
+		return nil, fmt.Errorf("parsing bits '%s': %w", rtt.Bits, err)
+	}
+
+	numWindows := len(rtt.PrevHeaderTime)
+	filterIndex := 0
+	if numWindows <= 4 {
+		filterIndex = 1
+	}
+
+	prevTargetFloat := new(big.Float).SetInt(prevTarget)
+	prevWindowTimestamp := int64(0)
+
+	for i := 0; i < numWindows; i++ {
+		if filterIndex >= len(rttFilterCoefficients) {
+			break
+		}
+		timestamp := rtt.PrevHeaderTime[i]
+		if timestamp == 0 {
+			filterIndex++
+			continue
+		}
+		if i > 0 && timestamp == prevWindowTimestamp {
+			filterIndex++
+			continue
+		}
+		prevWindowTimestamp = timestamp
+		diffTime := currentTime - timestamp
+		if diffTime < 1 {
+			diffTime = 1
+		}
+		coeff := rttFilterCoefficients[filterIndex]
+		filterIndex++
+		diffTimePow5 := math.Pow(float64(diffTime), 5)
+		result := new(big.Float).Mul(prevTargetFloat, big.NewFloat(coeff))
+		result.Mul(result, big.NewFloat(diffTimePow5))
+		target, _ := result.Int(nil)
+		if target.Cmp(nextTarget) < 0 {
+			nextTarget = target
+		}
+	}
+	return nextTarget, nil
+}
+
+// GetRTTTargetRaw returns RTT target from raw fields.
+func GetRTTTargetRaw(rtt *RTTRawData, currentTime int64) (*big.Int, error) {
+	if !IsRTTDataValidRaw(rtt) {
+		return nil, fmt.Errorf("RTT data malformed")
+	}
+	if rtt.NextTarget != "" {
+		target, err := rttCompactToBig(rtt.NextTarget)
+		if err == nil && target.Sign() > 0 {
+			return target, nil
+		}
+	}
+	return ComputeRTTRaw(rtt, currentTime)
+}
+
+// CheckRTTTargetRaw validates a block hash against RTT from raw fields.
+func CheckRTTTargetRaw(blockHashBE []byte, rtt *RTTRawData, currentTime int64) (bool, error) {
+	rttTarget, err := GetRTTTargetRaw(rtt, currentTime)
+	if err != nil {
+		return false, err
+	}
+	hashInt := new(big.Int).SetBytes(blockHashBE)
+	return hashInt.Cmp(rttTarget) <= 0, nil
+}
+
+
 // CheckRTTTarget validates if a block hash meets the RTT target.
 func CheckRTTTarget(blockHashBE []byte, template *daemon.BlockTemplate, currentTime int64) (bool, error) {
 	rttTarget, err := GetRTTTarget(template, currentTime)

@@ -11,6 +11,7 @@ package pool
 import (
 	"context"
 	"fmt"
+        "encoding/hex"
 	"math"
 	"math/rand"
 	"os"
@@ -1385,12 +1386,46 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
                         // eCash blocks must meet both the normal PoW target AND the RTT target.
                         // Failing RTT means the block will be rejected by the network, wasting miner funds.
                         if cp.coinSymbol == "XEC" {
-                                // TODO: Implement RTT validation using the block template
-                                // For now, log a warning that RTT is not checked
-                                cp.logger.Warnw("RTT validation not yet implemented for XEC - block may be rejected",
-                                        "height", share.BlockHeight,
-                                        "hash", result.BlockHash,
-                                )
+                                // Get the job to access RTT data
+                                rttJob, rttJobFound := cp.jobManager.GetJob(share.JobID)
+                                if rttJobFound && len(rttJob.RTTPrevHeaderTime) > 0 {
+                                        // Convert block hash from hex to bytes (big-endian for comparison)
+                                        blockHashBytes, hashErr := hex.DecodeString(result.BlockHash)
+                                        if hashErr == nil && len(blockHashBytes) == 32 {
+                                                // Reverse to big-endian (daemon format is little-endian)
+                                                for i, j := 0, len(blockHashBytes)-1; i < j; i, j = i+1, j-1 {
+                                                        blockHashBytes[i], blockHashBytes[j] = blockHashBytes[j], blockHashBytes[i]
+                                                }
+                                                rttData := &coin.RTTRawData{
+                                                        PrevHeaderTime: rttJob.RTTPrevHeaderTime,
+                                                        PrevBits:       rttJob.RTTPrevBits,
+                                                        NextTarget:     rttJob.RTTNextTarget,
+                                                        Bits:           rttJob.RTTBits,
+                                                }
+                                                meetsRTT, rttErr := coin.CheckRTTTargetRaw(blockHashBytes, rttData, time.Now().Unix())
+                                                if rttErr != nil {
+                                                        cp.logger.Warnw("RTT validation error - submitting anyway",
+                                                                "error", rttErr,
+                                                                "height", share.BlockHeight,
+                                                                "hash", result.BlockHash,
+                                                        )
+                                                } else if !meetsRTT {
+                                                        // Block does NOT meet RTT target - skip submission
+                                                        // Submitting would waste miner funds (node rejects it)
+                                                        cp.logger.Warnw("Block does NOT meet RTT target - skipping submission",
+                                                                "height", share.BlockHeight,
+                                                                "hash", result.BlockHash,
+                                                                "miner", share.MinerAddress,
+                                                        )
+                                                        finalStatus = "orphaned"
+                                                        orphanReason = "rtt_target_not_met"
+                                                        skipSubmission = true
+                                                        if cp.metricsServer != nil {
+                                                                cp.metricsServer.BlockRejectionsByReason.WithLabelValues("rtt_failed").Inc()
+                                                        }
+                                                }
+                                        }
+                                }
                         }
 
 			// SUBMIT IMMEDIATELY — unified submit + verify + preciousblock (V1 PARITY)

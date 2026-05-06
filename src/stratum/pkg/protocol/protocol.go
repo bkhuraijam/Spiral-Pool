@@ -592,6 +592,18 @@ type Job struct {
 	// AuxMerkleNonce is the nonce used in chain slot calculation.
 	// This affects which slot each aux chain occupies in the tree.
 	AuxMerkleNonce uint32
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // ECASH (XEC) REAL TIME TARGET (RTT) FIELDS
+        // ═══════════════════════════════════════════════════════════════════════════
+        // RTT data from getblocktemplate. Stored so the block handler can validate
+        // the block hash meets the RTT target before submission.
+        // For non-XEC jobs, RTTPrevHeaderTime is nil.
+        RTTPrevHeaderTime []int64
+        RTTPrevBits       string
+        RTTNextTarget     string
+        RTTBits           string // Normal PoW bits (for RTT computation fallback)
+
 }
 
 // AuxBlockData contains aux block information for merge mining.
