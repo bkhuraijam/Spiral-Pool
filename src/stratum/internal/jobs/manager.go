@@ -1130,6 +1130,14 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 	// Sequence
 	cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
 
+        // eCash (XEC): detect mandatory coinbase outputs from template
+        // For non-XEC coins, CoinbaseTxn is nil so all these are false (no change to existing behavior)
+        hasMinerFund := template.CoinbaseTxn != nil && template.CoinbaseTxn.MinerFund != nil &&
+                len(template.CoinbaseTxn.MinerFund.Addresses) > 0 && template.CoinbaseTxn.MinerFund.MinimumValue > 0
+        hasStakingRewards := template.CoinbaseTxn != nil && template.CoinbaseTxn.StakingRewards != nil &&
+                template.CoinbaseTxn.StakingRewards.MinimumValue > 0 && template.CoinbaseTxn.StakingRewards.PayoutScript.Hex != ""
+
+
 	// Output count - MUST be calculated BEFORE appending outputs
 	// 1 output for pool reward, optionally +1 for witness commitment.
 	// CRITICAL: Only include witness commitment for coins that support SegWit.
@@ -1138,30 +1146,85 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 	// nil coinImpl: default to including witness (backwards-compatible for SegWit coins).
 	segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
 	includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
-	outputCount := byte(0x01)
-	if includeWitness {
-		outputCount = 0x02
-	}
+        outputCount := byte(0x01)
+        if hasMinerFund {
+                outputCount++
+        }
+        if hasStakingRewards {
+                outputCount++
+        }
+        if includeWitness {
+                outputCount++
+        }
 	cb2 = append(cb2, outputCount)
 
 	// Output 1: Pool reward (coinbase reward in satoshis, little-endian)
-	// SECURITY: Validate coinbase value is non-negative (G115 fix)
-	// Bitcoin max supply is 21M BTC = 2.1e15 satoshis, fits easily in int64/uint64
-	if template.CoinbaseValue < 0 {
-		m.logger.Errorw("CRITICAL: Negative coinbase value from node - possible attack or bug",
-			"value", template.CoinbaseValue,
-		)
-		// Use 0 to fail safely rather than overflow
-		template.CoinbaseValue = 0
-	}
-	valueBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(valueBytes, uint64(template.CoinbaseValue))
+        // For eCash: subtract mandatory MinerFund and StakingRewards from total reward
+        // For other coins: poolReward == template.CoinbaseValue (no change)
+        poolReward := template.CoinbaseValue
+        if hasMinerFund {
+                poolReward -= template.CoinbaseTxn.MinerFund.MinimumValue
+        }
+        if hasStakingRewards {
+                poolReward -= template.CoinbaseTxn.StakingRewards.MinimumValue
+        }
+        // SECURITY: Validate coinbase value is non-negative (G115 fix)
+        if poolReward < 0 {
+                m.logger.Errorw("CRITICAL: Negative pool reward after deductions",
+                        "coinbaseValue", template.CoinbaseValue,
+                        "poolReward", poolReward,
+                )
+                poolReward = 0
+        }
+        valueBytes := make([]byte, 8)
+        binary.LittleEndian.PutUint64(valueBytes, uint64(poolReward))
+
 	cb2 = append(cb2, valueBytes...)
 
 	// Output script (pay to pool address) - uses coin-specific script builder
 	script := m.buildOutputScript()
 	cb2 = append(cb2, byte(len(script)))
 	cb2 = append(cb2, script...)
+
+        // Output 2 (eCash only): MinerFund - mandatory coinbase output
+        // Goes to the address specified in the template. Omitting this = rejected block.
+        if hasMinerFund {
+                minerFundAddress := template.CoinbaseTxn.MinerFund.Addresses[0]
+                minerFundScript, buildErr := m.coinImpl.BuildCoinbaseScript(coin.CoinbaseParams{
+                        PoolAddress: minerFundAddress,
+                })
+                if buildErr != nil {
+                        m.logger.Errorw("CRITICAL: Failed to build MinerFund script",
+                                "error", buildErr,
+                                "address", minerFundAddress,
+                        )
+                } else {
+                        minerFundValueBytes := make([]byte, 8)
+                        binary.LittleEndian.PutUint64(minerFundValueBytes, uint64(template.CoinbaseTxn.MinerFund.MinimumValue))
+                        cb2 = append(cb2, minerFundValueBytes...)
+                        cb2 = append(cb2, byte(len(minerFundScript)))
+                        cb2 = append(cb2, minerFundScript...)
+                }
+        }
+
+        // Output 3 (eCash only): StakingRewards - mandatory coinbase output
+        // Script is provided directly in hex. Omitting this = rejected block.
+        if hasStakingRewards {
+                stakingScript, decodeErr := hex.DecodeString(template.CoinbaseTxn.StakingRewards.PayoutScript.Hex)
+                if decodeErr != nil {
+                        m.logger.Errorw("CRITICAL: Failed to decode StakingRewards script",
+                                "error", decodeErr,
+                                "hex", template.CoinbaseTxn.StakingRewards.PayoutScript.Hex,
+                        )
+                } else {
+                        stakingValueBytes := make([]byte, 8)
+                        binary.LittleEndian.PutUint64(stakingValueBytes, uint64(template.CoinbaseTxn.StakingRewards.MinimumValue))
+                        cb2 = append(cb2, stakingValueBytes...)
+                        cb2 = append(cb2, byte(len(stakingScript)))
+                        cb2 = append(cb2, stakingScript...)
+                }
+        }
+
 
 	// Output 2: Witness commitment (if present)
 	// This is required for blocks containing SegWit transactions
