@@ -1381,6 +1381,18 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
 		}
 
 		if !skipSubmission {
+                        // RTT (Real Time Target) validation for eCash (XEC)
+                        // eCash blocks must meet both the normal PoW target AND the RTT target.
+                        // Failing RTT means the block will be rejected by the network, wasting miner funds.
+                        if cp.coinSymbol == "XEC" {
+                                // TODO: Implement RTT validation using the block template
+                                // For now, log a warning that RTT is not checked
+                                cp.logger.Warnw("RTT validation not yet implemented for XEC - block may be rejected",
+                                        "height", share.BlockHeight,
+                                        "hash", result.BlockHash,
+                                )
+                        }
+
 			// SUBMIT IMMEDIATELY — unified submit + verify + preciousblock (V1 PARITY)
 			// HeightContext cancels automatically if the chain tip advances (new block found),
 			// preventing stale RPC calls on a guaranteed-rejected block.
