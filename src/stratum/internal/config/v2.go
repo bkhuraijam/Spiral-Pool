@@ -569,7 +569,7 @@ func (c *ConfigV2) Validate() error {
 		coinName := symbolToCoinName(coin.Symbol)
 		if _, ok := SupportedCoins[coinName]; !ok {
 			return fmt.Errorf("coins[%d]: unknown symbol '%s'. Supported: BTC, BCH, BC2, DGB, DGB-SCRYPT, "+
-				"LTC, DOGE, PEP, CAT, NMC, XMY, FBTC, QBX (SYS is merge-mining only via BTC parent)", i, coin.Symbol)
+                                "LTC, DOGE, PEP, CAT, NMC, XMY, FBTC, QBX, XEC (SYS is merge-mining only via BTC parent)", i, coin.Symbol)
 		}
 	}
 
@@ -1281,6 +1281,7 @@ func symbolToCoinName(symbol string) string {
 		"LTC": "litecoin", "DOGE": "dogecoin", "PEP": "pepecoin",
 		"CAT": "catcoin", "NMC": "namecoin", "SYS": "syscoin",
 		"XMY": "myriadcoin", "FBTC": "fractalbitcoin", "QBX": "qbitx",
+                "XEC": "ecash",
 	}
 	if name, ok := m[strings.ToUpper(symbol)]; ok {
 		return name
@@ -1318,6 +1319,8 @@ func getDefaultPortForCoin(symbol string) int {
 		return 8340 // FIX: Was 8341 (P2P port). RPC port is 8340.
 	case "QBX", "QBITX", "Q-BITX":
 		return 8344
+        case "XEC", "ECASH":
+                return 9004
 	default:
 		return 8332
 	}

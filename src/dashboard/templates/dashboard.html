@@ -8379,10 +8379,11 @@
 
             // Last Block Found: per-coin when a coin is selected, global otherwise
             let lastBlockTime, lastBlockFinder, lastBlockHeight;
-            if (resolvedCoinData && resolvedCoinData.last_block_time) {
-                lastBlockTime = resolvedCoinData.last_block_time;
-                lastBlockFinder = resolvedCoinData.last_block_finder;
-                lastBlockHeight = resolvedCoinData.last_block_height;
+            if (_userSelectedCoin && resolvedCoinData) {
+                // Specific coin selected — use its data only (no fallback to aggregate)
+                lastBlockTime = resolvedCoinData.last_block_time || null;
+                lastBlockFinder = resolvedCoinData.last_block_finder || null;
+                lastBlockHeight = resolvedCoinData.last_block_height || null;
             } else {
                 lastBlockTime = data.last_block_time;
                 lastBlockFinder = data.last_block_finder;

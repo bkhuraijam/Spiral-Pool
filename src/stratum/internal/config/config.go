@@ -650,6 +650,18 @@ var SupportedCoins = map[string]CoinInfo{
 		AddressPrefix: []byte{0x32}, // M prefix (50 decimal)
 		BlockTime:     60,           // 1 minute
 	},
+        // eCash (XEC) - Bitcoin Cash fork with Avalanche post-consensus
+        // Uses CashAddr format (ecash:q...) - NOT Bitcoin address format
+        // Has Real Time Target (RTT) and mandatory MinerFund/StakingRewards outputs
+        "ecash": {
+                Name:          "eCash",
+                Symbol:        "XEC",
+                Algorithm:     "sha256d",
+                DefaultPort:   9004,
+                P2PPort:       8333,
+                AddressPrefix: []byte{0x00},
+                BlockTime:     600,
+        },
 }
 
 // CoinInfo contains static information about a coin
