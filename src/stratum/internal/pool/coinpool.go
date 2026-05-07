@@ -1427,6 +1427,7 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
                                         }
                                 }
                         }
+                        if !skipSubmission {
 
 			// SUBMIT IMMEDIATELY — unified submit + verify + preciousblock (V1 PARITY)
 			// HeightContext cancels automatically if the chain tip advances (new block found),
@@ -1801,6 +1802,7 @@ func (cp *CoinPool) handleBlock(share *protocol.Share, result *protocol.ShareRes
 					"height", share.BlockHeight,
 					"error", walErr,
 				)
+                        }
 			}
 		}
 	}
