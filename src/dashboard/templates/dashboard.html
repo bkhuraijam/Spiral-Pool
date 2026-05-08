@@ -4800,6 +4800,9 @@
                 if (hrUnitEl) hrUnitEl.textContent = getHashrateUnit(currentHashrateThs);
                 if (hrSubEl) hrSubEl.textContent = 'Workers: ' + (coinData.miners || 0);
 
+                const minersOnlineEl = document.getElementById('miners-online');
+                if (minersOnlineEl) minersOnlineEl.textContent = coinData.miners || 0;
+
                 // Update network stats (Statistics chart labels)
                 const netHps = coinData.network_hashrate || 0;
                 const netHashEl = document.getElementById('chart-val-network-hashrate');
@@ -8420,7 +8423,10 @@
 
             // Pool-connected miners (stratum only — actually submitting shares)
             const poolConnected = data.pool_connected_miners || 0;
-            document.getElementById('miners-online').textContent = poolConnected;
+            const minersToShow = (_userSelectedCoin && data.per_coin_stats && data.per_coin_stats[_userSelectedCoin])
+                ? (data.per_coin_stats[_userSelectedCoin].miners || 0)
+                : poolConnected;
+            document.getElementById("miners-online").textContent = minersToShow;
 
             // Fleet info (devices reachable on network, may not be mining on this pool)
             const fleetEl = document.getElementById('fleet-count');
