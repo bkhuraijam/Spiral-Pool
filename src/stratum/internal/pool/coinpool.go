@@ -598,7 +598,7 @@ func (cp *CoinPool) setupCallbacks() {
 			}()
 		}
 
-		cp.stratumServer.BroadcastJob(job)
+                go cp.stratumServer.BroadcastJob(job)
 	})
 
 	// Stratum server sends shares to pool for processing
