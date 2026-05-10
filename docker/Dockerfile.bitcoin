@@ -2,49 +2,52 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Spiral Pool Contributors
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
+# ║                    BITCOIN KNOTS - DOCKER IMAGE                           ║
 # ║                                                                            ║
-# ║                    BITCOIN KNOTS - DOCKER IMAGE                            ║
+# ║   Built from official GitHub release tarball.                              ║
+# ║   No dependency on third-party Docker Hub images.                         ║
 # ║                                                                            ║
-# ║   Separate container for Bitcoin Knots node                                ║
-# ║   For multi-coin mining support                                            ║
-# ║                                                                            ║
-# ║   Bitcoin Knots is an enhanced Bitcoin client with additional features     ║
-# ║   and bug fixes. It's fully compatible with the Bitcoin network.           ║
-# ║                                                                            ║
-# ║   Official image: bitcoinknots/bitcoin                                     ║
-# ║   https://hub.docker.com/r/bitcoinknots/bitcoin                            ║
+# ║   To upgrade: change VERSION below, rebuild.                              ║
 # ║                                                                            ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-# Use the official Bitcoin Knots image (multi-arch: supports amd64 and arm64)
-# WARNING: ARM64 (aarch64) support is EXPERIMENTAL and UNTESTED.
-FROM bitcoinknots/bitcoin:29.3.knots20260210
+FROM debian:bookworm-slim
+
+ARG VERSION=29.3.knots20260508
+ARG ARCH=x86_64-linux-gnu
 
 LABEL maintainer="Spiral Miner"
 LABEL description="Bitcoin Knots Node for Spiral Pool"
-LABEL version="29.3.knots20260210"
+LABEL version="${VERSION}"
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gosu gettext-base \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Bitcoin Knots from official GitHub release
+RUN curl -fsSL "https://github.com/bitcoinknots/bitcoin/releases/download/v${VERSION}/bitcoin-${VERSION}-${ARCH}.tar.gz" \
+        -o /tmp/bitcoin.tar.gz \
+    && tar -xzf /tmp/bitcoin.tar.gz -C /tmp/ \
+    && mv /tmp/bitcoin-${VERSION}/bin/bitcoind /usr/local/bin/ \
+    && mv /tmp/bitcoin-${VERSION}/bin/bitcoin-cli /usr/local/bin/ \
+    && mv /tmp/bitcoin-${VERSION}/bin/bitcoin-tx /usr/local/bin/ \
+    && rm -rf /tmp/bitcoin* \
+    && chmod +x /usr/local/bin/bitcoind /usr/local/bin/bitcoin-cli /usr/local/bin/bitcoin-tx
+
+# Create bitcoin user
+RUN useradd -m -s /bin/bash bitcoin
 
 # Expose ports
-# P2P (mainnet)
-EXPOSE 8333
-# RPC
-EXPOSE 8332
-# ZMQ
-EXPOSE 28332
+EXPOSE 8333 8332 28332
 
 # Data volume
 VOLUME ["/home/bitcoin/.bitcoin"]
 
-# Add envsubst for config template processing
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends gosu gettext-base \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create entrypoint script that processes config template
+# Create entrypoint script
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
-# Process config template (replace env vars) — skip if user-provided config exists\n\
 if [ -f /home/bitcoin/.bitcoin/bitcoin.conf ] && [ -s /home/bitcoin/.bitcoin/bitcoin.conf ]; then\n\
     echo "Using existing bitcoin.conf (skipping template generation)"\n\
 elif [ -f /config/bitcoin.conf.template ]; then\n\
@@ -52,10 +55,7 @@ elif [ -f /config/bitcoin.conf.template ]; then\n\
     chmod 600 /home/bitcoin/.bitcoin/bitcoin.conf\n\
 fi\n\
 \n\
-# Ensure proper ownership of data directory\n\
 chown -R bitcoin:bitcoin /home/bitcoin/.bitcoin\n\
-\n\
-# Start Bitcoin daemon\n\
 exec gosu bitcoin bitcoind -printtoconsole "$@"\n\
 ' > /entrypoint.sh && chmod +x /entrypoint.sh
 
