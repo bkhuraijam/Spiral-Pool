@@ -936,6 +936,32 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
                         cp.roundDiffMu.Unlock()
                 }
 
+		// Log share with actual hash difficulty (debug level)
+		cp.logger.Debugw("Share accepted",
+			"sessionId", share.SessionID,
+			"jobId", share.JobID,
+			"shareDiff", share.Difficulty,
+			"actualDiff", result.ActualDifficulty,
+			"nonce", share.Nonce,
+			"worker", share.WorkerName,
+			"coin", cp.coinSymbol,
+		)
+		// Near-miss detection: actual difficulty approaching network target
+		if result.ActualDifficulty > 0 && cp.lastGoodNetworkDiff > 0 {
+			networkDiff := cp.lastGoodNetworkDiff
+			if result.ActualDifficulty > networkDiff*0.5 {
+				cp.logger.Warnw("NEAR MISS: Share exceeded 50% of network difficulty",
+					"sessionId", share.SessionID,
+					"jobId", share.JobID,
+					"actualDiff", result.ActualDifficulty,
+					"networkDiff", networkDiff,
+					"percentOfNetwork", fmt.Sprintf("%.2f%%", result.ActualDifficulty/networkDiff*100),
+					"worker", share.WorkerName,
+					"coin", cp.coinSymbol,
+				)
+			}
+		}
+
                 // Track accepted share count for per-coin stats
                 cp.acceptedShareCount.Add(1)
 
@@ -3144,6 +3170,32 @@ func (cp *CoinPool) HandleMultiPortShare(share *protocol.Share) *protocol.ShareR
                         cp.currentRoundDifficulty += result.ActualDifficulty
                         cp.roundDiffMu.Unlock()
                 }
+
+		// Log multi-port share with actual hash difficulty (debug level)
+		cp.logger.Debugw("Multi-port share accepted",
+			"sessionId", share.SessionID,
+			"jobId", share.JobID,
+			"shareDiff", share.Difficulty,
+			"actualDiff", result.ActualDifficulty,
+			"nonce", share.Nonce,
+			"worker", share.WorkerName,
+			"coin", cp.coinSymbol,
+		)
+		// Near-miss detection: actual difficulty approaching network target
+		if result.ActualDifficulty > 0 && cp.lastGoodNetworkDiff > 0 {
+			networkDiff := cp.lastGoodNetworkDiff
+			if result.ActualDifficulty > networkDiff*0.5 {
+				cp.logger.Warnw("NEAR MISS: Multi-port share exceeded 50% of network difficulty",
+					"sessionId", share.SessionID,
+					"jobId", share.JobID,
+					"actualDiff", result.ActualDifficulty,
+					"networkDiff", networkDiff,
+					"percentOfNetwork", fmt.Sprintf("%.2f%%", result.ActualDifficulty/networkDiff*100),
+					"worker", share.WorkerName,
+					"coin", cp.coinSymbol,
+				)
+			}
+		}
 
                 if result.IsBlock {
                         cp.handleBlock(share, result)
