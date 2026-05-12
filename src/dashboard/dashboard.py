@@ -9519,7 +9519,7 @@ def index():
     # Initialize as empty list so the page doesn't crash if DB fails
     all_blocks = []
     try:
-        all_blocks = get_blocks_from_db(['dgb_sha256_1', 'fbtc_sha256_1'])
+        all_blocks = get_blocks_from_db(['dgb_sha256_1', 'fbtc_sha256_1', 'btc_sha256_1', 'bch_sha256_1', 'xec_sha256_1'])
     except Exception as e:
         print(f"[ERROR] DB block fetch failed: {e}")
         import traceback, sys
