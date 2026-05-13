@@ -3030,12 +3030,20 @@
         <div id="algo-badges" class="algo-badges" style="display:none;"></div>
 
         <!-- Per-Coin Worker Stats -->
-        <section class="collapsible-section" style="margin-bottom: 1rem;">
+        <section class="collapsible-section" id="worker-stats-section" style="margin-bottom: 1rem;">
             <div class="collapsible-header" onclick="toggleSection('worker-stats-section')">
-                <h3>Worker Statistics (24h)</h3>
-                <span class="collapsible-toggle">▼</span>
+                <h3 id="worker-stats-title">Worker Statistics</h3>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <div id="worker-window-buttons" style="display:flex; gap:4px;" onclick="event.stopPropagation()">
+                        <button onclick="fetchWorkerStats(10)" id="ws-btn-10" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">10m</button>
+                        <button onclick="fetchWorkerStats(60)" id="ws-btn-60" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">1h</button>
+                        <button onclick="fetchWorkerStats(1440)" id="ws-btn-1440" style="background:var(--accent-primary);color:var(--bg-body);border:1px solid var(--accent-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">24h</button>
+                    </div>
+                    <span class="collapsible-toggle">▼</span>
+                </div>
             </div>
-            <div class="collapsible-content" id="worker-stats-section">
+
+            <div class="collapsible-content" id="worker-stats-body">
                 {% set pool_map = {
                     'fbtc_sha256_1': 'FBTC',
                     'btc_sha256_1': 'BTC',
@@ -4023,7 +4031,7 @@
         // Restore collapsed states on load
         function restoreCollapsedStates() {
             const defaultCollapsed = ['earnings-section', 'health-section'];
-            const sections = ['charts-section', 'miners-section', 'earnings-section', 'health-section', 'activity-section', 'management-section'];
+            const sections = ['charts-section', 'miners-section', 'earnings-section', 'health-section', 'activity-section', 'management-section', 'worker-stats-section'];
             sections.forEach(sectionId => {
                 const state = localStorage.getItem('section_' + sectionId);
                 const section = document.getElementById(sectionId);
@@ -4032,6 +4040,88 @@
                     section.classList.add('collapsed');
                 }
             });
+        }
+        // Worker stats time window
+        let _currentWorkerWindow = 1440;
+
+        function fetchWorkerStats(minutes) {
+            _currentWorkerWindow = minutes;
+            // Update button styles
+            [10, 60, 1440].forEach(m => {
+                const btn = document.getElementById('ws-btn-' + m);
+                if (btn) {
+                    btn.style.background = m === minutes ? 'var(--accent-primary)' : 'var(--border-primary)';
+                    btn.style.color = m === minutes ? 'var(--bg-body)' : 'var(--text-muted)';
+                    btn.style.borderColor = m === minutes ? 'var(--accent-primary)' : 'var(--border-primary)';
+                }
+            });
+            // Update title
+            const labels = {10: '10m', 60: '1h', 1440: '24h'};
+            const title = document.getElementById('worker-stats-title');
+            if (title) title.textContent = 'Worker Statistics (' + (labels[minutes] || minutes + 'm') + ')';
+
+            fetch('/api/worker-stats?minutes=' + minutes)
+                .then(r => r.json())
+                .then(data => renderWorkerStats(data))
+                .catch(err => console.error('Worker stats fetch error:', err));
+        }
+
+        function renderWorkerStats(data) {
+            const body = document.getElementById('worker-stats-body');
+            if (!body) return;
+
+            const coinColors = {FBTC: '#ff8c00', BTC: '#ff9500', BCH: '#8bc34a', DGB: 'var(--neon-cyan)', XEC: '#00bcd4'};
+            const coinBg = {FBTC: 'rgba(255,140,0,0.2)', BTC: 'rgba(255,149,0,0.2)', BCH: 'rgba(139,195,74,0.2)', DGB: 'rgba(0,200,255,0.2)', XEC: 'rgba(0,188,212,0.2)'};
+
+            let html = '';
+            for (const coin of ['FBTC', 'BTC', 'BCH', 'DGB', 'XEC']) {
+                const workers = data[coin];
+                if (!workers || workers.length === 0) continue;
+                const selCoin = document.querySelector('.coin-selector-badge.active')?.dataset.coin || '';
+                const display = !selCoin || selCoin === coin ? '' : 'display:none;';
+                html += '<div data-coin="' + coin + '" class="worker-coin-group" style="margin-bottom:1rem;' + display + '">';
+                html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">';
+                html += '<span style="background:' + coinBg[coin] + ';color:' + coinColors[coin] + ';border:1px solid ' + coinColors[coin] + ';padding:2px 8px;border-radius:4px;font-size:0.8rem;font-weight:bold;">' + coin + '</span>';
+                html += '<span style="color:var(--text-muted);font-size:0.75rem;">' + workers.length + ' worker' + (workers.length !== 1 ? 's' : '') + '</span></div>';
+                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:0.8rem;">';
+                html += '<thead><tr style="color:var(--text-muted);text-align:left;border-bottom:2px solid rgba(255,255,255,0.1);">';
+                html += '<th style="padding:8px;">Worker</th><th style="padding:8px;text-align:right;">Hashrate</th><th style="padding:8px;text-align:right;">Shares</th><th style="padding:8px;text-align:right;">Best Diff</th><th style="padding:8px;text-align:right;">Net Diff</th><th style="padding:8px;text-align:right;">Last Share</th>';
+                html += '</tr></thead><tbody>';
+
+                for (const w of workers) {
+                    html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">';
+                    html += '<td style="padding:8px;color:' + coinColors[coin] + ';font-weight:bold;">' + w.worker + '</td>';
+                    html += '<td style="padding:8px;text-align:right;color:var(--neon-cyan);">' + formatWorkerHashrate(w.hashrate) + '</td>';
+                    html += '<td style="padding:8px;text-align:right;">' + w.shares.toLocaleString() + '</td>';
+                    html += '<td style="padding:8px;text-align:right;color:#ffcc00;">' + formatWorkerDiff(w.best_diff) + '</td>';
+                    html += '<td style="padding:8px;text-align:right;color:var(--text-dim);">' + formatWorkerDiff(w.network_diff) + '</td>';
+                    html += '<td style="padding:8px;text-align:right;color:var(--text-dim);white-space:nowrap;">' + (w.last_share || '---') + '</td>';
+                    html += '</tr>';
+                }
+                html += '</tbody></table></div></div>';
+            }
+            if (!html) html = '<div style="padding:40px;text-align:center;color:var(--text-muted);">No worker data for this time window</div>';
+            body.innerHTML = html;
+        }
+
+        function formatWorkerHashrate(hr) {
+            if (!hr || hr <= 0) return '---';
+            if (hr >= 1e15) return (hr / 1e15).toLocaleString(undefined, {maximumFractionDigits:2}) + ' PH/s';
+            if (hr >= 1e12) return (hr / 1e12).toLocaleString(undefined, {maximumFractionDigits:2}) + ' TH/s';
+            if (hr >= 1e9) return (hr / 1e9).toLocaleString(undefined, {maximumFractionDigits:2}) + ' GH/s';
+            if (hr >= 1e6) return (hr / 1e6).toLocaleString(undefined, {maximumFractionDigits:2}) + ' MH/s';
+            if (hr >= 1e3) return (hr / 1e3).toLocaleString(undefined, {maximumFractionDigits:2}) + ' KH/s';
+            return hr.toLocaleString(undefined, {maximumFractionDigits:0}) + ' H/s';
+        }
+
+        function formatWorkerDiff(d) {
+            if (!d || d <= 0) return '---';
+            if (d >= 1e15) return (d / 1e15).toLocaleString(undefined, {maximumFractionDigits:2}) + 'P';
+            if (d >= 1e12) return (d / 1e12).toLocaleString(undefined, {maximumFractionDigits:2}) + 'T';
+            if (d >= 1e9) return (d / 1e9).toLocaleString(undefined, {maximumFractionDigits:2}) + 'G';
+            if (d >= 1e6) return (d / 1e6).toLocaleString(undefined, {maximumFractionDigits:2}) + 'M';
+            if (d >= 1e3) return (d / 1e3).toLocaleString(undefined, {maximumFractionDigits:2}) + 'K';
+            return d.toLocaleString(undefined, {maximumFractionDigits:0});
         }
 
         // Configuration

@@ -152,9 +152,12 @@ def get_blocks_from_db(pool_ids: list, limit: int = 5000) -> list:
         traceback.print_exc()
         return []
 
-def get_worker_stats_from_db(pool_ids: list, hours: int = 24) -> dict:
+def get_worker_stats_from_db(pool_ids: list, minutes: int = 1440) -> dict:
     """Fetch per-worker stats from shares tables, grouped by coin and worker.
-    Returns: {pool_id: [{worker, shares, best_diff, first_share, last_share}, ...]}
+    Args:
+        pool_ids: List of pool table IDs to query
+        minutes: Time window in minutes (default 1440 = 24h)
+    Returns: {pool_id: [{worker, shares, best_diff, network_diff, hashrate, ...}, ...]}
     """
     try:
         conn = psycopg2.connect(
@@ -193,7 +196,7 @@ def get_worker_stats_from_db(pool_ids: list, hours: int = 24) -> dict:
                     MIN(created)                 AS first_share,
                     MAX(created)                 AS last_share
                 FROM {table}
-                WHERE created > NOW() - INTERVAL '{int(hours)} hours'
+                WHERE created > NOW() - INTERVAL '{int(minutes)} minutes'
                 GROUP BY worker
                 ORDER BY shares DESC
             """)
@@ -216,7 +219,6 @@ def get_worker_stats_from_db(pool_ids: list, hours: int = 24) -> dict:
         import traceback
         traceback.print_exc()
         return {}
-
 
 # Session secret key - persist across restarts for session continuity
 # Store in the same data directory as auth config
@@ -9597,7 +9599,8 @@ def index():
     all_worker_stats = {}
     try:
         all_worker_stats = get_worker_stats_from_db(
-            ['dgb_sha256_1', 'fbtc_sha256_1', 'btc_sha256_1', 'bch_sha256_1', 'xec_sha256_1'], hours=24)
+            ['dgb_sha256_1', 'fbtc_sha256_1', 'btc_sha256_1', 'bch_sha256_1', 'xec_sha256_1'], minutes=1440)
+
     except Exception as e:
         print(f"[ERROR] DB worker stats fetch failed: {e}")
 
@@ -10630,6 +10633,43 @@ def reset_stats():
     except Exception as e:
         app.logger.error(f"Lifetime stats reset error: {e}")
         return jsonify({"success": False, "error": "Failed to reset lifetime stats"}), 500
+
+@app.route('/api/worker-stats', methods=['GET'])
+@admin_required
+def api_worker_stats():
+    """Return per-coin per-worker statistics for a given time window.
+    Query param: minutes (default 1440, options: 10/60/1440 for 10m/1h/24h)
+    """
+    minutes = request.args.get('minutes', type=int, default=1440)
+    if minutes not in [10, 60, 1440]:
+        minutes = 1440
+
+    pool_ids = ['dgb_sha256_1', 'fbtc_sha256_1', 'btc_sha256_1', 'bch_sha256_1', 'xec_sha256_1']
+    worker_stats = get_worker_stats_from_db(pool_ids, minutes=minutes)
+
+    # Serialize datetime objects for JSON
+    result = {}
+    pool_map = {
+        'fbtc_sha256_1': 'FBTC',
+        'btc_sha256_1': 'BTC',
+        'bch_sha256_1': 'BCH',
+        'dgb_sha256_1': 'DGB',
+        'xec_sha256_1': 'XEC',
+    }
+    for pool_id, rows in worker_stats.items():
+        coin = pool_map.get(pool_id, pool_id)
+        result[coin] = []
+        for row in rows:
+            result[coin].append({
+                'worker': row['worker'],
+                'shares': row['shares'],
+                'hashrate': row.get('hashrate', 0),
+                'best_diff': float(row['best_diff']) if row['best_diff'] else 0,
+                'network_diff': float(row['network_diff']) if row['network_diff'] else 0,
+                'last_share': row['last_share'].strftime('%m-%d %H:%M') if row['last_share'] else None,
+            })
+
+    return jsonify(result)
 
 
 @app.route('/api/miners/check-sentinel-db', methods=['GET'])
