@@ -190,24 +190,26 @@ func (db *PostgresDB) WriteBatch(ctx context.Context, shares []*protocol.Share) 
 	_, err := db.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{tableName},
-		[]string{
-			"poolid", "blockheight", "difficulty", "networkdifficulty",
-			"miner", "worker", "useragent", "ipaddress", "source", "created",
-		},
-		pgx.CopyFromSlice(len(shares), func(i int) ([]interface{}, error) {
-			s := shares[i]
-			return []interface{}{
-				db.poolID,
-				s.BlockHeight,
-				s.Difficulty,
-				s.NetworkDiff,
-				s.MinerAddress,
-				s.WorkerName,
-				s.UserAgent,
-				s.IPAddress,
-				"stratum", // source
-				s.SubmittedAt,
-			}, nil
+                []string{
+                        "poolid", "blockheight", "difficulty", "actual_difficulty", "networkdifficulty",
+                        "miner", "worker", "useragent", "ipaddress", "source", "created",
+                },
+                pgx.CopyFromSlice(len(shares), func(i int) ([]interface{}, error) {
+                        s := shares[i]
+                        return []interface{}{
+                                db.poolID,
+                                s.BlockHeight,
+                                s.Difficulty,
+                                s.ActualDifficulty,
+                                s.NetworkDiff,
+                                s.MinerAddress,
+                                s.WorkerName,
+                                s.UserAgent,
+                                s.IPAddress,
+                                "stratum", // source
+                                s.SubmittedAt,
+                        }, nil
+
 		}),
 	)
 

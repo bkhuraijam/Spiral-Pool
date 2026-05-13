@@ -1355,6 +1355,9 @@ func (p *Pool) handleShare(share *protocol.Share) *protocol.ShareResult {
 			p.handleBlock(share, result)
 		}
 
+                // Store actual hash difficulty on share for DB persistence
+                share.ActualDifficulty = result.ActualDifficulty
+
 		// Submit to pipeline for DB persistence (after block handling)
 		if p.sharePipeline != nil {
 			p.sharePipeline.Submit(share)

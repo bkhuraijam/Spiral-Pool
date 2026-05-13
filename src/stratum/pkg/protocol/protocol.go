@@ -789,6 +789,7 @@ type Share struct {
 	// Validation results
 	Difficulty    float64
 	MinDifficulty float64 // Minimum acceptable difficulty (from session profile)
+        ActualDifficulty float64 // Actual difficulty of submitted hash (maxTarget / hashInt)
 	NetworkDiff   float64
 	BlockHeight   uint64
 	IsBlock       bool

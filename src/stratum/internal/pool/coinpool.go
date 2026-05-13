@@ -972,6 +972,9 @@ func (cp *CoinPool) handleShare(share *protocol.Share) *protocol.ShareResult {
 			cp.handleBlock(share, result)
 		}
 
+                // Store actual hash difficulty on share for DB persistence
+                share.ActualDifficulty = result.ActualDifficulty
+
 		// Submit to pipeline for DB persistence (after block handling)
 		if cp.sharePipeline != nil {
 			cp.sharePipeline.Submit(share)
@@ -3200,6 +3203,9 @@ func (cp *CoinPool) HandleMultiPortShare(share *protocol.Share) *protocol.ShareR
                 if result.IsBlock {
                         cp.handleBlock(share, result)
                 }
+
+                // Store actual hash difficulty on share for DB persistence
+                share.ActualDifficulty = result.ActualDifficulty
 
 		if cp.sharePipeline != nil {
 			cp.sharePipeline.Submit(share)

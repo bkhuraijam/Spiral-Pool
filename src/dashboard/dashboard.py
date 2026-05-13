@@ -152,6 +152,72 @@ def get_blocks_from_db(pool_ids: list, limit: int = 5000) -> list:
         traceback.print_exc()
         return []
 
+def get_worker_stats_from_db(pool_ids: list, hours: int = 24) -> dict:
+    """Fetch per-worker stats from shares tables, grouped by coin and worker.
+    Returns: {pool_id: [{worker, shares, best_diff, first_share, last_share}, ...]}
+    """
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST', 'postgres'),
+            port=int(os.getenv('POSTGRES_PORT', 5432)),
+            dbname=os.getenv('POSTGRES_DB', 'spiralstratum'),
+            user=os.getenv('POSTGRES_USER', 'spiralstratum'),
+            password=os.getenv('POSTGRES_PASSWORD', ''),
+        )
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        result = {}
+        for pool_id in pool_ids:
+            safe = ''.join(c for c in pool_id if c.isalnum() or c == '_')
+            table = f"shares_{safe}"
+
+            # Check if table exists
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = %s
+                ) AS table_exists;
+            """, (table,))
+            if not cursor.fetchone()['table_exists']:
+                result[pool_id] = []
+                continue
+
+            cursor.execute(f"""
+                SELECT
+                    COALESCE(worker, 'unknown') AS worker,
+                    COUNT(*)                     AS shares,
+                    GREATEST(MAX(difficulty), MAX(actual_difficulty)) AS best_diff,
+                    AVG(difficulty)              AS avg_diff,
+                    MAX(networkdifficulty)       AS network_diff,
+                    EXTRACT(EPOCH FROM (MAX(created) - MIN(created))) AS elapsed_seconds,
+                    MIN(created)                 AS first_share,
+                    MAX(created)                 AS last_share
+                FROM {table}
+                WHERE created > NOW() - INTERVAL '{int(hours)} hours'
+                GROUP BY worker
+                ORDER BY shares DESC
+            """)
+            rows = cursor.fetchall()
+            for row in rows:
+                elapsed = float(row.get('elapsed_seconds') or 0)
+                avg_diff = float(row.get('avg_diff') or 0)
+                if elapsed > 0 and avg_diff > 0:
+                    row['hashrate'] = (row['shares'] / elapsed) * avg_diff * (2 ** 32)
+                else:
+                    row['hashrate'] = 0
+            result[pool_id] = rows
+
+        cursor.close()
+        conn.close()
+        return result
+
+    except Exception as e:
+        print(f"[ERROR] DB worker stats fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
 # Session secret key - persist across restarts for session continuity
 # Store in the same data directory as auth config
 SECRET_KEY_FILE = Path("/spiralpool/dashboard/data/secret_key")
@@ -9527,6 +9593,13 @@ def index():
         traceback.print_exc(file=sys.stderr)
         # DO NOT return [] here. Let the code continue so all_blocks remains [].
         # The template will handle the empty list and show "NO BLOCKS".
+    # Fetch per-worker stats from shares tables
+    all_worker_stats = {}
+    try:
+        all_worker_stats = get_worker_stats_from_db(
+            ['dgb_sha256_1', 'fbtc_sha256_1', 'btc_sha256_1', 'bch_sha256_1', 'xec_sha256_1'], hours=24)
+    except Exception as e:
+        print(f"[ERROR] DB worker stats fetch failed: {e}")
 
     # Process blocks
     for block in all_blocks:
@@ -9558,7 +9631,8 @@ def index():
                            config=config,
                            stats=pool_stats,
                            blocks=all_blocks,
-                           block_count=len(all_blocks))
+                           block_count=len(all_blocks),
+                           worker_stats=all_worker_stats)
 
 @app.route('/setup')
 @api_key_or_login_required

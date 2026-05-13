@@ -3029,6 +3029,101 @@
         <!-- Algo Badges (hidden when only one algorithm active) -->
         <div id="algo-badges" class="algo-badges" style="display:none;"></div>
 
+        <!-- Per-Coin Worker Stats -->
+        <section class="collapsible-section" style="margin-bottom: 1rem;">
+            <div class="collapsible-header" onclick="toggleSection('worker-stats-section')">
+                <h3>Worker Statistics (24h)</h3>
+                <span class="collapsible-toggle">▼</span>
+            </div>
+            <div class="collapsible-content" id="worker-stats-section">
+                {% set pool_map = {
+                    'fbtc_sha256_1': 'FBTC',
+                    'btc_sha256_1': 'BTC',
+                    'bch_sha256_1': 'BCH',
+                    'dgb_sha256_1': 'DGB',
+                    'xec_sha256_1': 'XEC'
+                } %}
+                {% set coin_colors = {
+                    'FBTC': '#ff8c00',
+                    'BTC': '#ff9500',
+                    'BCH': '#8bc34a',
+                    'DGB': 'var(--neon-cyan)',
+                    'XEC': '#00bcd4'
+                } %}
+                {% set coin_styles = {
+                    'FBTC': 'rgba(255,140,0,0.2)',
+                    'BTC': 'rgba(255,149,0,0.2)',
+                    'BCH': 'rgba(139,195,74,0.2)',
+                    'DGB': 'rgba(0,200,255,0.2)',
+                    'XEC': 'rgba(0,188,212,0.2)'
+                } %}
+                {% for pool_id, coin in pool_map.items() %}
+                    {% if worker_stats.get(pool_id) %}
+                    <div data-coin="{{ coin }}" class="worker-coin-group" style="margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.5rem;">
+                            <span style="background: {{ coin_styles[coin] }}; color: {{ coin_colors[coin] }}; border: 1px solid {{ coin_colors[coin] }}; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;">{{ coin }}</span>
+                            <span style="color: var(--text-muted); font-size: 0.75rem;">{{ worker_stats[pool_id]|length }} worker{{ 's' if worker_stats[pool_id]|length != 1 }}</span>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.8rem;">
+                                <thead>
+                                    <tr style="color: var(--text-muted); text-align: left; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                        <th style="padding: 8px;">Worker</th>
+                                        <th style="padding: 8px; text-align: right;">Hashrate</th>
+                                        <th style="padding: 8px; text-align: right;">Shares</th>
+                                        <th style="padding: 8px; text-align: right;">Best Diff</th>
+                                        <th style="padding: 8px; text-align: right;">Net Diff</th>
+                                        <th style="padding: 8px; text-align: right;">Last Share</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for w in worker_stats[pool_id] %}
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 8px; color: {{ coin_colors[coin] }}; font-weight: bold;">{{ w.worker }}</td>
+                                        <td style="padding: 8px; text-align: right; color: var(--neon-cyan);">
+                                            {% if w.hashrate is defined and w.hashrate > 0 %}
+                                                {% if w.hashrate >= 1e15 %}{{ "{:,.2f} PH/s".format(w.hashrate / 1e15) }}
+                                                {% elif w.hashrate >= 1e12 %}{{ "{:,.2f} TH/s".format(w.hashrate / 1e12) }}
+                                                {% elif w.hashrate >= 1e9 %}{{ "{:,.2f} GH/s".format(w.hashrate / 1e9) }}
+                                                {% elif w.hashrate >= 1e6 %}{{ "{:,.2f} MH/s".format(w.hashrate / 1e6) }}
+                                                {% elif w.hashrate >= 1e3 %}{{ "{:,.2f} KH/s".format(w.hashrate / 1e3) }}
+                                                {% else %}{{ "{:,.0f} H/s".format(w.hashrate) }}{% endif %}
+                                            {% else %}---{% endif %}
+                                        </td>
+                                        <td style="padding: 8px; text-align: right;">{{ "{:,}".format(w.shares) }}</td>
+                                        <td style="padding: 8px; text-align: right; color: #ffcc00;">
+                                            {% if w.best_diff is not none %}
+                                                {% if w.best_diff >= 1e15 %}{{ "{:,.2f}P".format(w.best_diff / 1e15) }}
+                                                {% elif w.best_diff >= 1e12 %}{{ "{:,.2f}T".format(w.best_diff / 1e12) }}
+                                                {% elif w.best_diff >= 1e9 %}{{ "{:,.2f}G".format(w.best_diff / 1e9) }}
+                                                {% elif w.best_diff >= 1e6 %}{{ "{:,.2f}M".format(w.best_diff / 1e6) }}
+                                                {% elif w.best_diff >= 1e3 %}{{ "{:,.2f}K".format(w.best_diff / 1e3) }}
+                                                {% else %}{{ "{:,.0f}".format(w.best_diff) }}{% endif %}
+                                            {% else %}---{% endif %}
+                                        </td>
+                                        <td style="padding: 8px; text-align: right; color: var(--text-dim);">
+                                            {% if w.network_diff is not none and w.network_diff > 0 %}
+                                                {% if w.network_diff >= 1e15 %}{{ "{:,.2f}P".format(w.network_diff / 1e15) }}
+                                                {% elif w.network_diff >= 1e12 %}{{ "{:,.2f}T".format(w.network_diff / 1e12) }}
+                                                {% elif w.network_diff >= 1e9 %}{{ "{:,.2f}G".format(w.network_diff / 1e9) }}
+                                                {% elif w.network_diff >= 1e6 %}{{ "{:,.2f}M".format(w.network_diff / 1e6) }}
+                                                {% else %}{{ "{:,.0f}".format(w.network_diff) }}{% endif %}
+                                            {% else %}---{% endif %}
+                                        </td>
+                                        <td style="padding: 8px; text-align: right; color: var(--text-dim); white-space: nowrap;">
+                                            {% if w.last_share %}{{ w.last_share.strftime('%m-%d %H:%M') }}{% else %}---{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </section>
+
         <!-- Multi-Coin Rotation Status -->
 <div id="rotation-widget" class="collapsible-section rotation-section" style="display:none;">
     <div class="collapsible-header" onclick="toggleSection('rotation-widget')">
@@ -3492,7 +3587,7 @@
                 </thead>
                 <tbody id="ba-history-body">
                     {% for block in blocks %}
-                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                    <tr data-coin="{{ block.coin }}" style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
                         
                         <!-- Height -->
                         <td style="padding: 10px 8px;">
@@ -3602,6 +3697,7 @@
         </div>
     </div>
 </section>                
+
         <!-- Cumulative Blocks Chart -->
         <section class="collapsible-section" style="margin-bottom: 1rem;">
             <div class="collapsible-header" onclick="toggleSection('ba-cumulative-section')">
@@ -4917,6 +5013,22 @@
             updateAllStatsCharts();
             applyStatsCoinFilter();
             fetchDailyBlocks();
+
+            // Filter block history table by selected coin
+            document.querySelectorAll('#ba-history-body tr').forEach(row => {
+                row.style.display = (!symbol || row.dataset.coin === symbol) ? '' : 'none';
+            });
+            const histTitle = document.querySelector('#ba-history-section').closest('.collapsible-section').querySelector('h3');
+            if (histTitle) {
+                const visible = document.querySelectorAll('#ba-history-body tr:not([style*="display: none"])').length;
+                histTitle.textContent = symbol ? `Block History — ${symbol}` : 'Block History (Last 5,000)';
+            }
+
+            // Filter worker stats by selected coin
+            document.querySelectorAll('.worker-coin-group').forEach(group => {
+                group.style.display = (!symbol || group.dataset.coin === symbol) ? '' : 'none';
+            });
+
 
             // Update all coin symbol displays and earnings
             updateCoinSymbols();
