@@ -168,7 +168,7 @@ services:
         hard: 65535
     healthcheck:
       # AUDIT FIX (CR-2): Read credentials from config file instead of CLI args
-      test: ["CMD-SHELL", "digibyte-cli -conf=/home/digibyte/.digibyte/digibyte.conf getblockchaininfo | grep -q '\"initialblockdownload\": false'"]
+      test: ["CMD-SHELL", "bitcoin-cli -conf=/home/bitcoin/.bitcoin/bitcoin.conf getblockchaininfo | grep -q '\"initialblockdownload\": false'"]
       interval: 60s
       timeout: 10s
       retries: 2000
@@ -1090,7 +1090,7 @@ services:
   # GRAFANA (DASHBOARDS & ALERTING)
   # ═══════════════════════════════════════════════════════════════════════════
   grafana:
-    profiles: []
+    profiles: ["multi"]
     image: grafana/grafana-oss:10.4.2
     container_name: spiralpool-grafana
     restart: unless-stopped
