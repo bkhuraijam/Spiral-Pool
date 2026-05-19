@@ -105,3 +105,4 @@ blockmaxweight=4000000
 
 # Minimum relay fee (default is fine for mining)
 minrelaytxfee=0.00001
+consensusrules=rdts

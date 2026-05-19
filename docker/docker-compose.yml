@@ -460,10 +460,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4G
+          cpus: '8'
+          memory: 12G
         reservations:
-          memory: 1G
+          memory: 4G
     ulimits:
       nofile:
         soft: 65535

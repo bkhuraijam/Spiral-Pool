@@ -10973,18 +10973,35 @@ def api_worker_stats():
         minutes = 1440
 
     worker_stats = get_worker_stats_from_db(list(WORKER_STATS_POOL_MAP.keys()), minutes=minutes)
+    # Get live network difficulty from cached stratum stats
+    live_net_diff = {}
+    try:
+        per_coin = pool_stats_cache.get("per_coin", {})
+        for coin, stats in per_coin.items():
+            if isinstance(stats, dict):
+                live_net_diff[coin] = float(stats.get("difficulty", 0))
+    except Exception:
+        pass
 
     result = {}
+    window_seconds = minutes * 60
     for pool_id, rows in worker_stats.items():
         coin = WORKER_STATS_POOL_MAP.get(pool_id, pool_id)
         result[coin] = []
         for row in rows:
+            shares = int(row['shares'])
+            elapsed = float(row.get('elapsed_seconds') or 0)
+            avg_diff = float(row.get('avg_diff') or 0)
+            # Use window duration for hashrate, not just elapsed time between shares
+            # This prevents overestimation when few shares exist in the window
+            duration = max(60, elapsed) if elapsed > 0 else max(60, window_seconds)
+            hashrate = (shares / duration) * avg_diff * (2 ** 32) if duration > 0 and avg_diff > 0 else 0
             result[coin].append({
                 'worker':       row['worker'],
-                'shares':       row['shares'],
-                'hashrate':     row.get('hashrate', 0),
+                'shares':       shares,
+                'hashrate':     round(hashrate, 2),
                 'best_diff':    float(row['best_diff']) if row['best_diff'] else 0,
-                'network_diff': float(row['network_diff']) if row['network_diff'] else 0,
+                'network_diff': live_net_diff.get(coin, float(row['network_diff']) if row['network_diff'] else 0),
                 'last_share':   row['last_share'].strftime('%m-%d %H:%M') if row['last_share'] else None,
             })
     return jsonify(result)
