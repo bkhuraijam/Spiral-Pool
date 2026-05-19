@@ -84,7 +84,9 @@ type MultiPortStats struct {
 	TotalSwitches    uint64                   `json:"total_switches"`
 	CoinDistribution map[string]int           `json:"coin_distribution"`
 	AllowedCoins     []string                 `json:"allowed_coins"`
-	CoinWeights      map[string]int           `json:"coin_weights,omitempty"` // symbol → weight %
+	ExcludeCoins     []string                 `json:"exclude_coins,omitempty"` // coins excluded from DIFFICULTY-mode rotation
+	CoinWeights      map[string]int           `json:"coin_weights,omitempty"`  // symbol → weight % (omitted in DIFFICULTY mode)
+	RoutingMode      string                   `json:"routing_mode"`            // "TIME" or "DIFFICULTY"
 }
 
 // MultiPortSwitchEvent represents a coin switch event for the API.
@@ -130,9 +132,9 @@ type CoinPoolProvider interface {
 	GetBlocksFound() int64
 	GetBlockReward() float64
 	GetPoolEffort() float64
-        GetAcceptedShares() int64
-        GetRejectedShares() int64
-        GetBestShareDiff() float64
+	GetAcceptedShares() int64
+	GetRejectedShares() int64
+	GetBestShareDiff() float64
 	GetStratumPort() int
 	GetActiveConnections() []WorkerConnection
 	// Extended V2 methods for full API parity with V1
@@ -294,9 +296,9 @@ func (s *ServerV2) handlePools(w http.ResponseWriter, r *http.Request) {
 				BlocksFound:           provider.GetBlocksFound(),
 				BlockReward:           provider.GetBlockReward(),
 				PoolEffort:            provider.GetPoolEffort(),
-                                AcceptedShares:        provider.GetAcceptedShares(),
-                                RejectedShares:        provider.GetRejectedShares(),
-                                BestShareDiff:         provider.GetBestShareDiff(),
+				AcceptedShares:        provider.GetAcceptedShares(),
+				RejectedShares:        provider.GetRejectedShares(),
+				BestShareDiff:         provider.GetBestShareDiff(),
 			},
 			PaymentProcessing: PaymentInfo{
 				Enabled: true,
@@ -319,7 +321,7 @@ func (s *ServerV2) handlePools(w http.ResponseWriter, r *http.Request) {
 
 	response := PoolsResponse{
 		Software: "spiral-stratum",
-		Version:  "2.4.2-PHI_HASH_REACTOR-V2",
+		Version:  "2.5.0-PHI_HASH_REACTOR-V2",
 		Pools:    pools,
 	}
 
@@ -469,9 +471,9 @@ func (s *ServerV2) handlePoolInfo(w http.ResponseWriter, r *http.Request, provid
 			"blocksFound":       provider.GetBlocksFound(),
 			"blockReward":       provider.GetBlockReward(),
 			"poolEffort":        provider.GetPoolEffort(),
-                        "acceptedShares":    provider.GetAcceptedShares(),
-                        "rejectedShares":    provider.GetRejectedShares(),
-                        "bestShareDiff":     provider.GetBestShareDiff(),
+			"acceptedShares":    provider.GetAcceptedShares(),
+			"rejectedShares":    provider.GetRejectedShares(),
+			"bestShareDiff":     provider.GetBestShareDiff(),
 		},
 	}
 
@@ -497,9 +499,9 @@ func (s *ServerV2) handlePoolStats(w http.ResponseWriter, r *http.Request, provi
 		"blocksFound":         provider.GetBlocksFound(),
 		"blockReward":         provider.GetBlockReward(),
 		"poolEffort":          provider.GetPoolEffort(),
-                "acceptedShares":      provider.GetAcceptedShares(),
-                "rejectedShares":      provider.GetRejectedShares(),
-                "bestShareDiff":       provider.GetBestShareDiff(),
+		"acceptedShares":      provider.GetAcceptedShares(),
+		"rejectedShares":      provider.GetRejectedShares(),
+		"bestShareDiff":       provider.GetBestShareDiff(),
 	}
 
 	s.writeJSON(w, response)
@@ -589,55 +591,55 @@ func (s *ServerV2) handleConnectionsV2(w http.ResponseWriter, r *http.Request, p
 
 // handlePoolBlocks returns block history for a pool.
 func (s *ServerV2) handlePoolBlocks(w http.ResponseWriter, r *http.Request, poolID string, coinSymbol string) {
-        ctx := r.Context()
+	ctx := r.Context()
 
-        // --- START PATCH ---
-        // Parse pageSize from query parameters (e.g., ?pageSize=1000)
-        // Default to 200, allow up to 5000 for high-performance monitoring
-        limit := 200
-        if val := r.URL.Query().Get("pageSize"); val != "" {
-                if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
-                        limit = parsed
-                        if limit > 5000 {
-                                limit = 5000
-                        }
-                }
-        }
-        // --- END PATCH ---
+	// Parse optional pageSize query param (default 200, max 5000).
+	limit := 200
+	if val := r.URL.Query().Get("pageSize"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+			limit = parsed
+			if limit > 5000 {
+				limit = 5000
+			}
+		}
+	}
 
-        // Scope DB queries to this specific pool's tables
-        // BUG FIX: Use GetBlocksWithOrphans instead of GetBlocks.
-        scopedDB := s.db.WithPoolID(poolID)
-        
-        // Pass the dynamic limit variable instead of the hardcoded 200
-        blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
-        if err != nil {
-                s.logger.Errorw("Failed to get blocks", "poolId", poolID, "error", err)
-                http.Error(w, "Internal server error", http.StatusInternalServerError)
-                return
-        }
+	// Scope DB queries to this specific pool's tables
+	// BUG FIX: Use GetBlocksWithOrphans instead of GetBlocks.
+	// GetBlocks filters WHERE status IN ('pending', 'confirmed'), which hides
+	// orphaned blocks from the API. Sentinel's check_for_orphans() needs to see
+	// blocks that transitioned to "orphaned" status for orphan detection to work.
+	// Sentinel's check_pool_for_new_blocks() already skips non-pending/non-confirmed
+	// blocks (line 14394), so including orphaned blocks is safe for block detection.
+	scopedDB := s.db.WithPoolID(poolID)
+	blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
+	if err != nil {
+		s.logger.Errorw("Failed to get blocks", "poolId", poolID, "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-        response := make([]map[string]interface{}, 0, len(blocks))
-        for _, b := range blocks {
-                entry := map[string]interface{}{
-                        "blockHeight":          b.Height,
-                        "status":               b.Status,
-                        "confirmationProgress": b.ConfirmationProgress,
-                        "networkDifficulty":    b.NetworkDifficulty,
-                        "effort":               b.Effort,
-                        "miner":                b.Miner,
-                        "reward":               b.Reward,
-                        "hash":                 b.Hash,
-                        "created":              b.Created,
-                        "coin":                 coinSymbol,
-                }
-                if b.Source != "" {
-                        entry["source"] = b.Source
-                }
-                response = append(response, entry)
-        }
+	response := make([]map[string]interface{}, 0, len(blocks))
+	for _, b := range blocks {
+		entry := map[string]interface{}{
+			"blockHeight":          b.Height,
+			"status":               b.Status,
+			"confirmationProgress": b.ConfirmationProgress,
+			"networkDifficulty":    b.NetworkDifficulty,
+			"effort":               b.Effort,
+			"miner":                b.Miner,
+			"reward":               b.Reward,
+			"hash":                 b.Hash,
+			"created":              b.Created,
+			"coin":                 coinSymbol,
+		}
+		if b.Source != "" {
+			entry["source"] = b.Source
+		}
+		response = append(response, entry)
+	}
 
-        s.writeJSON(w, response)
+	s.writeJSON(w, response)
 }
 
 // handleHealth returns health status.

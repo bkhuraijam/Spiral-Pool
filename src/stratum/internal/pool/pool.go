@@ -109,8 +109,8 @@ type Pool struct {
 	cachedBlocksFound       int64
 	cachedBlockReward       float64
 	cachedPoolEffort        float64
-        acceptedShareCount      atomic.Int64
-        bestShareDiffBits       atomic.Uint64 // stores float64 as bits for CAS
+	acceptedShareCount      atomic.Int64
+	bestShareDiffBits       atomic.Uint64 // stores float64 bits for lock-free CAS
 	lastBlockFoundAt        time.Time
 	statsMu                 sync.RWMutex
 
@@ -1318,19 +1318,19 @@ func (p *Pool) handleShare(share *protocol.Share) *protocol.ShareResult {
 			// This shows the true "best" share based on how hard the hash was to find
 			if result.Accepted && result.ActualDifficulty > 0 {
 				p.metricsServer.UpdateBestShareDiff(result.ActualDifficulty)
-                                // Update per-coin best share difficulty (CAS loop)
-                                for {
-                                        oldBits := p.bestShareDiffBits.Load()
-                                        oldDiff := math.Float64frombits(oldBits)
-                                        if result.ActualDifficulty <= oldDiff {
-                                                break
-                                        }
-                                        newBits := math.Float64bits(result.ActualDifficulty)
-                                        if p.bestShareDiffBits.CompareAndSwap(oldBits, newBits) {
-                                                break
-                                        }
-                                }
-                        }
+				// Update per-coin session best share difficulty (lock-free CAS loop)
+				for {
+					oldBits := p.bestShareDiffBits.Load()
+					oldDiff := math.Float64frombits(oldBits)
+					if result.ActualDifficulty <= oldDiff {
+						break
+					}
+					newBits := math.Float64bits(result.ActualDifficulty)
+					if p.bestShareDiffBits.CompareAndSwap(oldBits, newBits) {
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -1347,16 +1347,16 @@ func (p *Pool) handleShare(share *protocol.Share) *protocol.ShareResult {
 	}
 
 	if result.Accepted {
-                 // Track accepted share count for per-coin stats
-                p.acceptedShareCount.Add(1)
+		// Track accepted share count for per-coin stats API.
+		p.acceptedShareCount.Add(1)
+
 		// CRITICAL: Check for block FIRST, before ANY I/O operations
 		// Block submission is the most time-sensitive operation - every millisecond counts!
 		if result.IsBlock {
 			p.handleBlock(share, result)
 		}
 
-                // Store actual hash difficulty on share for DB persistence
-                share.ActualDifficulty = result.ActualDifficulty
+		share.ActualDifficulty = result.ActualDifficulty
 
 		// Submit to pipeline for DB persistence (after block handling)
 		if p.sharePipeline != nil {
@@ -2301,10 +2301,19 @@ blockLogging:
 		}
 	}
 
+	// FBTC fix: when getdifficulty returns 1 (indexing provider cycle),
+	// use the cached mining difficulty from the validator instead.
+	v1NetDiff := share.NetworkDiff
+	if v1NetDiff <= 1 {
+		if cachedDiff := p.shareValidator.GetNetworkDifficulty(); cachedDiff > 1 {
+			v1NetDiff = cachedDiff
+		}
+	}
+
 	block := &database.Block{
 		Height:            share.BlockHeight,
-			Effort:            share.Difficulty,
-		NetworkDifficulty: share.NetworkDiff,
+		Effort:            share.Difficulty,
+		NetworkDifficulty: v1NetDiff, // Uses corrected difficulty for FBTC
 		Status:            blockStatus,
 		Type:              "block",
 		Miner:             share.MinerAddress,
@@ -3028,16 +3037,16 @@ func (p *Pool) Run(ctx context.Context) error {
 		p.haRole.Store(int32(ha.RoleBackup))
 	}
 
-                // Fetch initial network difficulty synchronously BEFORE accepting miners.
-        // Without this, a block solved during the jitter window records
-        // networkdifficulty=1 (GetNetworkDifficulty returns 0 when uninitialized).
-        initialDiff, diffErr := p.daemonClient.GetDifficulty(ctx)
-        if diffErr != nil {
-                p.logger.Warnw("Failed to get initial network difficulty (will retry in loop)", "error", diffErr)
-        } else {
-                p.shareValidator.SetNetworkDifficulty(initialDiff)
-                p.logger.Infow("Initial network difficulty set before stratum start", "difficulty", initialDiff)
-        }
+	// Fetch initial network difficulty synchronously BEFORE accepting miners.
+	// Without this, a block solved during the jitter window records
+	// networkdifficulty=1 (GetNetworkDifficulty returns 0 when uninitialized).
+	initialDiff, diffErr := p.daemonClient.GetDifficulty(ctx)
+	if diffErr != nil {
+		p.logger.Warnw("Failed to get initial network difficulty (will retry in loop)", "error", diffErr)
+	} else {
+		p.shareValidator.SetNetworkDifficulty(initialDiff)
+		p.logger.Infow("Initial network difficulty set before stratum start", "difficulty", initialDiff)
+	}
 
 	// Start stratum server
 	if err := p.stratumServer.Start(ctx); err != nil {
@@ -4224,21 +4233,20 @@ func (p *Pool) GetPoolEffort() float64 {
 
 // GetAcceptedShares returns the total accepted shares for this pool since startup.
 func (p *Pool) GetAcceptedShares() int64 {
-        stats := p.shareValidator.Stats()
-        return int64(stats.Accepted)
+	stats := p.shareValidator.Stats()
+	return int64(stats.Accepted)
 }
 
 // GetRejectedShares returns the total rejected shares for this pool since startup.
 func (p *Pool) GetRejectedShares() int64 {
-        stats := p.shareValidator.Stats()
-        return int64(stats.Rejected)
+	stats := p.shareValidator.Stats()
+	return int64(stats.Rejected)
 }
 
 // GetBestShareDiff returns the highest share difficulty for this pool since startup.
 func (p *Pool) GetBestShareDiff() float64 {
-        return math.Float64frombits(p.bestShareDiffBits.Load())
+	return math.Float64frombits(p.bestShareDiffBits.Load())
 }
-
 
 // getAlgoBlockTime returns the per-algorithm target block time in seconds.
 // For multi-algo coins like DGB (5 algos, 15s chain time), this returns
@@ -4247,8 +4255,10 @@ func getAlgoBlockTime(symbol string) float64 {
 	switch strings.ToUpper(symbol) {
 	case "DGB", "DGB-SCRYPT":
 		return 75 // 15s chain time * 5 algorithms
-	case "BTC", "BCH", "BC2", "NMC", "CAT":
+	case "BTC", "BCH", "BCH2", "BC2", "NMC", "XEC", "CAT":
 		return 600
+	case "BTCS":
+		return 300 // 5-minute blocks
 	case "SYS", "LTC", "QBX":
 		return 150
 	case "XMY", "DOGE", "PEP":

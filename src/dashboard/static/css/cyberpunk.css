@@ -2160,7 +2160,7 @@ body {
     }
 }
 
-/* Custom Status Badges for Block History */
+/* Status Badges for Block History — contributed by bkhuraijam */
 .status-badge-confirmed {
     color: #00ff00;
     border-color: #00ff00;

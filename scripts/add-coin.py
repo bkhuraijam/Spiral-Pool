@@ -10,7 +10,7 @@ This script is for adding coins that are NOT natively supported by Spiral Pool.
 The following coins ship with Spiral Pool and should be installed via the installer
 (sudo bash install.sh → "Add coins to existing installation"):
 
-    SHA-256d: BTC, BCH, BC2, DGB, FBTC, NMC, QBX, SYS, XMY
+    SHA-256d: BTC, BCH, BCH2, BC2, BTCS, DGB, FBTC, NMC, QBX, SYS, XEC, XMY
     Scrypt:   LTC, DOGE, DGB-SCRYPT, PEP, CAT
 
 Use this script only for coins outside the above list.
@@ -97,8 +97,10 @@ KNOWN_SCRYPT_COINS = {
 # Known SHA256d coins for algorithm detection fallback
 KNOWN_SHA256D_COINS = {
     "BTC", "BITCOIN", "BCH", "BITCOINCASH", "DGB", "DIGIBYTE",
+    "BCH2", "BITCOINCASHII", "BTCS", "BITCOINSILVER",
     "BC2", "BITCOINII", "NMC", "NAMECOIN", "SYS", "SYSCOIN",
-    "XMY", "MYRIAD", "QBX", "QBITX"
+    "XMY", "MYRIAD", "QBX", "QBITX",
+    "XEC", "ECASH", "BITCOINABC",
 }
 
 # CoinGecko API base URL
@@ -1378,13 +1380,23 @@ def detect_dns_seeds(chainparams_content: str) -> List[str]:
 # DOCKER FILE GENERATORS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_node_dockerfile(params: CoinParams, release_url: Optional[str] = None) -> str:
+def generate_node_dockerfile(
+    params: CoinParams,
+    release_url: Optional[str] = None,
+    github_url: Optional[str] = None,
+) -> str:
     """
     Generate Dockerfile for the coin's full node.
 
     Uses pre-built binary from release_url if provided; otherwise compiles
-    from source using the standard Bitcoin Core build system.
+    from source using github_url. Raises ValueError if neither is provided.
     """
+    if not release_url and not github_url:
+        raise ValueError(
+            f"generate_node_dockerfile({params.symbol}): need either release_url "
+            f"(pre-built binary) or github_url (source compile). Pass --github or "
+            f"--binary-url on the CLI."
+        )
     coinlower = params.symbol.lower()
     symbol_upper = params.symbol.upper()
     algo_desc = "Scrypt" if params.algorithm == "scrypt" else "SHA-256d"
@@ -1401,7 +1413,7 @@ def generate_node_dockerfile(params: CoinParams, release_url: Optional[str] = No
 # ║                                                                            ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 LABEL maintainer="Spiral Miner"
 LABEL description="{params.name} Node for Spiral Pool"
@@ -1428,7 +1440,6 @@ RUN useradd -r -m -s /bin/bash {coinlower} \\
     && chown -R {coinlower}:{coinlower} /home/{coinlower}
 
 # Download and install {params.name}
-# WARNING: ARM64 (aarch64) support is EXPERIMENTAL and UNTESTED.
 WORKDIR /tmp
 RUN ARCHIVE="$(basename "{release_url}")" \\
     && wget -q --max-redirect=5 "{release_url}" -O "$ARCHIVE" \\
@@ -1440,7 +1451,6 @@ RUN ARCHIVE="$(basename "{release_url}")" \\
     else:
         install_section = f"""
 # Install build dependencies (compile from source — no pre-built binary detected)
-# TODO: Set GITHUB_REPO_URL below to the actual repository before building
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     curl wget ca-certificates libzmq3-dev libzmq5-dev gosu gettext-base \\
     build-essential autoconf libtool pkg-config git \\
@@ -1452,9 +1462,8 @@ RUN useradd -r -m -s /bin/bash {coinlower} \\
     && mkdir -p /home/{coinlower}/.{coinlower} \\
     && chown -R {coinlower}:{coinlower} /home/{coinlower}
 
-# TODO: Replace GITHUB_REPO_URL with the actual repository URL before building
 WORKDIR /tmp
-RUN git clone --depth=1 GITHUB_REPO_URL /tmp/{coinlower}-src \\
+RUN git clone --depth=1 {github_url} /tmp/{coinlower}-src \\
     && cd /tmp/{coinlower}-src \\
     && ./autogen.sh \\
     && ./configure --without-gui --disable-tests \\
@@ -2288,7 +2297,7 @@ Examples:
     conf_content = ""
     if not getattr(args, 'skip_docker', False):
         dns_seeds = detect_dns_seeds(chainparams_content) if chainparams_content else []
-        dockerfile_content = generate_node_dockerfile(params, release_url)
+        dockerfile_content = generate_node_dockerfile(params, release_url, args.github)
         conf_content = generate_conf_template(params, dns_seeds)
 
     # Step D: Native install script

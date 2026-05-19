@@ -39,9 +39,12 @@ const (
 var (
 	// Multi-coin address patterns:
 	// - DigiByte: D (mainnet P2PKH), S (P2SH), dgb1 (bech32)
-	// Address validation supports all 14 coins:
+	// Address validation supports all 17 coins:
 	// - BTC/BC2/FBTC/QBX: 1 (P2PKH), 3 (P2SH), bc1q (bech32)
 	// - BCH: q/p (CashAddr), bitcoincash: prefix
+	// - BCH2: q/p (CashAddr), bitcoincashii: prefix (same bytes as BCH/BTC — use full form)
+	// - XEC: q/p (CashAddr), ecash: prefix (Bitcoin ABC; no SegWit)
+	// - BTCS: B (P2PKH, version 0x1A), 3 (P2SH), bs1q (bech32), bs1p (bech32m)
 	// - DGB: D (P2PKH), S (P2SH), 3 (P2SH), dgb1q (bech32)
 	// - LTC: L/M (P2PKH/P2SH), ltc1q (bech32)
 	// - DOGE: D (P2PKH)
@@ -51,7 +54,7 @@ var (
 	// - PEP: P (P2PKH), pep1q (bech32)
 	// - CAT: 9 (P2PKH, version byte 21) — SegWit disabled on mainnet (SegwitHeight=INT_MAX)
 	validAddressPattern = regexp.MustCompile(`^(?:` +
-		`[13DSLMNP9][a-km-zA-HJ-NP-Z1-9]{25,34}|` + // Legacy P2PKH/P2SH (all coins; 9=CAT)
+		`[13DSLMNP9B][a-km-zA-HJ-NP-Z1-9]{25,34}|` + // Legacy P2PKH/P2SH (all coins; 9=CAT, B=BTCS)
 		`bc1q[a-z0-9]{38,58}|` + // Bitcoin/BC2/FBTC/QBX bech32
 		`bcrt1q[a-z0-9]{38,58}|` + // Bitcoin regtest bech32
 		`dgb1q[a-z0-9]{38,58}|` + // DigiByte mainnet bech32
@@ -64,8 +67,12 @@ var (
 		`nc1q[a-z0-9]{38,58}|` + // Namecoin bech32
 		`my1q[a-z0-9]{38,58}|` + // Myriadcoin bech32
 		`pep1q[a-z0-9]{38,58}|` + // PepeCoin bech32
-		`[qp][a-z0-9]{40,42}|` + // Bitcoin Cash CashAddr (short)
-		`bitcoincash:[qp][a-z0-9]{40,42}` + // Bitcoin Cash CashAddr (full)
+		`bs1q[a-z0-9]{38,58}|` + // Bitcoin Silver bech32 (BTCS)
+		`bs1p[a-z0-9]{38,58}|` + // Bitcoin Silver bech32m/Taproot (BTCS)
+		`[qp][a-z0-9]{40,42}|` + // Bitcoin Cash / Bitcoin Cash II / eCash CashAddr (short)
+		`bitcoincash:[qp][a-z0-9]{40,42}|` + // Bitcoin Cash CashAddr (full)
+		`bitcoincashii:[qp][a-z0-9]{40,42}|` + // Bitcoin Cash II CashAddr (full)
+		`ecash:[qp][a-z0-9]{40,42}` + // eCash (XEC) CashAddr (full)
 		`)$`)
 	// Pool IDs: must be valid PostgreSQL identifiers (alphanumeric with underscores, 1-63 chars)
 	// Must start with letter or underscore. Hyphens are NOT allowed as they are invalid in table names.
@@ -136,9 +143,9 @@ type StatsProvider interface {
 	GetBlocksFound() int64
 	GetBlockReward() float64
 	GetPoolEffort() float64
-        GetAcceptedShares() int64
-        GetRejectedShares() int64
-        GetBestShareDiff() float64
+	GetAcceptedShares() int64
+	GetRejectedShares() int64
+	GetBestShareDiff() float64
 }
 
 // RouterProfile represents difficulty settings for a miner class.
@@ -372,6 +379,9 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 	var blocksFound int64
 	var blockReward float64
 	var poolEffort float64
+	var acceptedShares int64
+	var rejectedShares int64
+	var bestShareDiff float64
 
 	if s.statsProvider != nil {
 		connections = s.statsProvider.GetConnections()
@@ -382,6 +392,9 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 		blocksFound = s.statsProvider.GetBlocksFound()
 		blockReward = s.statsProvider.GetBlockReward()
 		poolEffort = s.statsProvider.GetPoolEffort()
+		acceptedShares = s.statsProvider.GetAcceptedShares()
+		rejectedShares = s.statsProvider.GetRejectedShares()
+		bestShareDiff = s.statsProvider.GetBestShareDiff()
 	}
 
 	// Build ports info from stratum config if available
@@ -435,7 +448,9 @@ func (s *Server) handlePools(w http.ResponseWriter, r *http.Request) {
 					BlocksFound:       blocksFound,
 					BlockReward:       blockReward,
 					PoolEffort:        poolEffort,
-                                        AcceptedShares:    s.statsProvider.GetAcceptedShares(),
+					AcceptedShares:    acceptedShares,
+					RejectedShares:    rejectedShares,
+					BestShareDiff:     bestShareDiff,
 				},
 				PaymentProcessing: PaymentInfo{
 					Enabled:        true,
@@ -657,89 +672,85 @@ func (s *Server) handlePoolStats(w http.ResponseWriter, r *http.Request, poolID 
 
 // handlePoolBlocks returns block history.
 func (s *Server) handlePoolBlocks(w http.ResponseWriter, r *http.Request, poolID string) {
-        ctx := r.Context()
-        db := s.getDB()
-        if db == nil {
-                http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
-                return
-        }
+	ctx := r.Context()
+	db := s.getDB()
+	if db == nil {
+		http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
-        // --- START PATCH ---
-        // Parse pageSize from query parameters (e.g., ?pageSize=5000)
-        // Default to 100, allow up to 5000 for high-performance monitoring
-        limit := 100
-        if val := r.URL.Query().Get("pageSize"); val != "" {
-                if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
-                        limit = parsed
-                        if limit > 5000 {
-                                limit = 5000
-                        }
-                }
-        }
-        // --- END PATCH ---
+	// Parse optional pageSize query param (default 100, max 5000).
+	limit := 100
+	if val := r.URL.Query().Get("pageSize"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+			limit = parsed
+			if limit > 5000 {
+				limit = 5000
+			}
+		}
+	}
 
-        // Scope DB queries to this specific pool's tables
-        scopedDB := db.WithPoolID(poolID)
-        // Pass the limit to the database query
-        blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
-        if err != nil {
-                http.Error(w, "Internal server error", http.StatusInternalServerError)
-                return
-        }
+	// Scope DB queries to this specific pool's tables
+	scopedDB := db.WithPoolID(poolID)
+	blocks, err := scopedDB.GetBlocksWithOrphans(ctx, limit)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-        response := make([]map[string]interface{}, 0, len(blocks))
-        for _, b := range blocks {
-                entry := map[string]interface{}{
-                        "blockHeight":          b.Height,
-                        "status":               b.Status,
-                        "confirmationProgress": b.ConfirmationProgress,
-                        "networkDifficulty":    b.NetworkDifficulty,
-                        "effort":               b.Effort,
-                        "miner":                b.Miner,
-                        "reward":               b.Reward,
-                        "hash":                 b.Hash,
-                        "created":              b.Created,
-                }
-                if b.Source != "" {
-                        entry["source"] = b.Source
-                        entry["worker"] = b.Source
-                }
-                response = append(response, entry)
-        }
+	response := make([]map[string]interface{}, 0, len(blocks))
+	for _, b := range blocks {
+		entry := map[string]interface{}{
+			"blockHeight":          b.Height,
+			"status":               b.Status,
+			"confirmationProgress": b.ConfirmationProgress,
+			"networkDifficulty":    b.NetworkDifficulty,
+			"effort":               b.Effort,
+			"miner":                b.Miner,
+			"reward":               b.Reward,
+			"hash":                 b.Hash,
+			"created":              b.Created,
+		}
+		if b.Source != "" {
+			entry["source"] = b.Source
+			entry["worker"] = b.Source
+		}
+		response = append(response, entry)
+	}
 
-        s.writeJSON(w, response)
+	s.writeJSON(w, response)
 }
 
- // handlePoolMiners returns all active miners.
- func (s *Server) handlePoolMiners(w http.ResponseWriter, r *http.Request, poolID string) {
-         if r.Method != http.MethodGet {
-                 http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-                 return
-         }
+// handlePoolMiners returns all active miners.
+func (s *Server) handlePoolMiners(w http.ResponseWriter, r *http.Request, poolID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-         ctx := r.Context()
-         db := s.getDB()
-         if db == nil {
-                 http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
-                 return
-         }
+	ctx := r.Context()
+	db := s.getDB()
+	if db == nil {
+		http.Error(w, "Database unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
-         // Get miners who have submitted shares in the last 10 minutes
-         // This matches the hashrate calculation window
-         miners, err := db.GetActiveMiners(ctx, 10)
-         if err != nil {
-                 s.logger.Errorw("Failed to get active miners", "error", err)
-                 http.Error(w, "Internal server error", http.StatusInternalServerError)
-                 return
-         }
+	// Get miners who have submitted shares in the last 10 minutes
+	// This matches the hashrate calculation window
+	miners, err := db.GetActiveMiners(ctx, 10)
+	if err != nil {
+		s.logger.Errorw("Failed to get active miners", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-         // Return empty array instead of null if no miners
-         if miners == nil {
-                 miners = []*database.MinerSummary{}
-         }
+	// Return empty array instead of null if no miners
+	if miners == nil {
+		miners = []*database.MinerSummary{}
+	}
 
-         s.writeJSON(w, miners)
- }
+	s.writeJSON(w, miners)
+}
 
 // handleMinerStats returns statistics for a specific miner.
 func (s *Server) handleMinerStats(w http.ResponseWriter, r *http.Request, poolID, address string) {
@@ -1844,9 +1855,9 @@ type PoolStatsInfo struct {
 	BlocksFound           int64   `json:"blocksFound"`
 	BlockReward           float64 `json:"blockReward"`
 	PoolEffort            float64 `json:"poolEffort"`
-        AcceptedShares        int64   `json:"acceptedShares"`
-        RejectedShares        int64   `json:"rejectedShares"`
-        BestShareDiff         float64 `json:"bestShareDiff"`
+	AcceptedShares        int64   `json:"acceptedShares"`
+	RejectedShares        int64   `json:"rejectedShares"`
+	BestShareDiff         float64 `json:"bestShareDiff"`
 }
 
 type PaymentInfo struct {

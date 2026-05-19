@@ -190,26 +190,25 @@ func (db *PostgresDB) WriteBatch(ctx context.Context, shares []*protocol.Share) 
 	_, err := db.pool.CopyFrom(
 		ctx,
 		pgx.Identifier{tableName},
-                []string{
-                        "poolid", "blockheight", "difficulty", "actual_difficulty", "networkdifficulty",
-                        "miner", "worker", "useragent", "ipaddress", "source", "created",
-                },
-                pgx.CopyFromSlice(len(shares), func(i int) ([]interface{}, error) {
-                        s := shares[i]
-                        return []interface{}{
-                                db.poolID,
-                                s.BlockHeight,
-                                s.Difficulty,
-                                s.ActualDifficulty,
-                                s.NetworkDiff,
-                                s.MinerAddress,
-                                s.WorkerName,
-                                s.UserAgent,
-                                s.IPAddress,
-                                "stratum", // source
-                                s.SubmittedAt,
-                        }, nil
-
+		[]string{
+			"poolid", "blockheight", "difficulty", "actual_difficulty", "networkdifficulty",
+			"miner", "worker", "useragent", "ipaddress", "source", "created",
+		},
+		pgx.CopyFromSlice(len(shares), func(i int) ([]interface{}, error) {
+			s := shares[i]
+			return []interface{}{
+				db.poolID,
+				s.BlockHeight,
+				s.Difficulty,
+				s.ActualDifficulty,
+				s.NetworkDiff,
+				s.MinerAddress,
+				s.WorkerName,
+				s.UserAgent,
+				s.IPAddress,
+				"stratum", // source
+				s.SubmittedAt,
+			}, nil
 		}),
 	)
 
@@ -650,50 +649,48 @@ func (db *PostgresDB) GetBlocks(ctx context.Context) ([]*Block, error) {
 // Without orphaned blocks in the response, orphan detection is blind.
 // NOTE: Sentinel's check_pool_for_new_blocks() already filters out orphaned
 // blocks (only alerts on "pending"/"confirmed"), so this is safe for block detection.
-// GetBlocksWithOrphans returns all blocks including orphaned, newest first.
-// PATCH: Added limit parameter to override the hardcoded 200 default.
+// limit controls the maximum rows returned (default 200, max 5000 via API pageSize param).
 func (db *PostgresDB) GetBlocksWithOrphans(ctx context.Context, limit int) ([]*Block, error) {
-        tableName := fmt.Sprintf("blocks_%s", db.poolID)
+	tableName := fmt.Sprintf("blocks_%s", db.poolID)
 
-        query := fmt.Sprintf(`
-                SELECT id, blockheight, networkdifficulty, status, type,
-                               confirmationprogress, effort, transactionconfirmationdata,
-                               miner, COALESCE(source, '') as source, reward, hash, created,
-                               COALESCE(orphan_mismatch_count, 0) as orphan_mismatch_count,
-                               COALESCE(stability_check_count, 0) as stability_check_count,
-                               COALESCE(last_verified_tip, '') as last_verified_tip
-                FROM %s
-                ORDER BY blockheight DESC
-                LIMIT $1
-        `, tableName) // Changed LIMIT to use parameter $1
+	query := fmt.Sprintf(`
+		SELECT id, blockheight, networkdifficulty, status, type,
+			   confirmationprogress, effort, transactionconfirmationdata,
+			   miner, COALESCE(source, '') as source, reward, hash, created,
+			   COALESCE(orphan_mismatch_count, 0) as orphan_mismatch_count,
+			   COALESCE(stability_check_count, 0) as stability_check_count,
+			   COALESCE(last_verified_tip, '') as last_verified_tip
+		FROM %s
+		ORDER BY blockheight DESC
+		LIMIT $1
+	`, tableName)
 
-        // Pass 'limit' as the first argument to the query
-        rows, err := db.pool.Query(ctx, query, limit)
-        if err != nil {
-                return nil, err
-        }
-        defer rows.Close()
+	rows, err := db.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-        var blocks []*Block
-        for rows.Next() {
-                b := &Block{}
-                err := rows.Scan(
-                        &b.ID, &b.Height, &b.NetworkDifficulty, &b.Status, &b.Type,
-                        &b.ConfirmationProgress, &b.Effort, &b.TransactionConfirmationData,
-                        &b.Miner, &b.Source, &b.Reward, &b.Hash, &b.Created,
-                        &b.OrphanMismatchCount, &b.StabilityCheckCount, &b.LastVerifiedTip,
-                )
-                if err != nil {
-                        return nil, err
-        }
-                blocks = append(blocks, b)
-        }
+	var blocks []*Block
+	for rows.Next() {
+		b := &Block{}
+		err := rows.Scan(
+			&b.ID, &b.Height, &b.NetworkDifficulty, &b.Status, &b.Type,
+			&b.ConfirmationProgress, &b.Effort, &b.TransactionConfirmationData,
+			&b.Miner, &b.Source, &b.Reward, &b.Hash, &b.Created,
+			&b.OrphanMismatchCount, &b.StabilityCheckCount, &b.LastVerifiedTip,
+		)
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, b)
+	}
 
-        if err := rows.Err(); err != nil {
-                return nil, fmt.Errorf("error iterating blocks with orphans: %w", err)
-        }
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating blocks with orphans: %w", err)
+	}
 
-        return blocks, nil
+	return blocks, nil
 }
 
 // GetConfirmedBlocks returns blocks that have reached maturity confirmation.
@@ -840,20 +837,19 @@ func (db *PostgresDB) GetLastBlockFoundTime(ctx context.Context) (time.Time, err
 // GetLastBlockFoundTimeForPool returns the creation time of the most recently found block
 // for a specific pool. Used by CoinPool to initialize effort calculation on startup.
 func (db *PostgresDB) GetLastBlockFoundTimeForPool(ctx context.Context, poolID string) (time.Time, error) {
-        if !validPoolID.MatchString(poolID) {
-                return time.Time{}, fmt.Errorf("invalid pool ID: %q", poolID)
-        }
-        tableName := fmt.Sprintf("blocks_%s", poolID)
-        query := fmt.Sprintf(`SELECT created FROM %s ORDER BY created DESC LIMIT 1`, tableName)
+	if !validPoolID.MatchString(poolID) {
+		return time.Time{}, fmt.Errorf("invalid pool ID: %q", poolID)
+	}
+	tableName := fmt.Sprintf("blocks_%s", poolID)
+	query := fmt.Sprintf(`SELECT created FROM %s ORDER BY created DESC LIMIT 1`, tableName)
 
-        var created time.Time
-        err := db.pool.QueryRow(ctx, query).Scan(&created)
-        if err != nil {
-                return time.Time{}, err
-        }
-        return created, nil
+	var created time.Time
+	err := db.pool.QueryRow(ctx, query).Scan(&created)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return created, nil
 }
-
 
 // InsertPayment records a payment.
 func (db *PostgresDB) InsertPayment(ctx context.Context, payment *Payment) error {
@@ -1116,7 +1112,7 @@ type Block struct {
 	Status                      string
 	Type                        string
 	ConfirmationProgress        float64
-	Effort                      float64 `db:"effort" json:"effort"`
+	Effort                      float64
 	TransactionConfirmationData string
 	Miner                       string
 	Source                      string // Worker name that found the block (wallet.worker format or just worker)

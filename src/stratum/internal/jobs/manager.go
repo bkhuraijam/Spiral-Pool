@@ -267,10 +267,16 @@ func extractCoinSymbol(coinConfig string) string {
 		"bitcoincash":     "BCH",
 		"bitcoin-cash":    "BCH",
 		"bch":             "BCH",
+		"bitcoincashii":   "BCH2",
+		"bitcoin-cash-ii": "BCH2",
+		"bch2":            "BCH2",
 		"bitcoinii":       "BC2",
 		"bitcoin-ii":      "BC2",
 		"bitcoin2":        "BC2",
 		"bc2":             "BC2",
+		"bitcoinsilver":   "BTCS",
+		"bitcoin-silver":  "BTCS",
+		"btcs":            "BTCS",
 		"namecoin":        "NMC",
 		"nmc":             "NMC",
 		"syscoin":         "SYS",
@@ -285,6 +291,9 @@ func extractCoinSymbol(coinConfig string) string {
 		"qbitx":           "QBX",
 		"q-bitx":          "QBX",
 		"qbx":             "QBX",
+		"ecash":           "XEC",
+		"xec":             "XEC",
+		"e-cash":          "XEC",
 		// Scrypt coins
 		"digibyte-scrypt": "DGB-SCRYPT",
 		"dgb-scrypt":      "DGB-SCRYPT",
@@ -821,26 +830,20 @@ func (m *Manager) generateJob(ctx context.Context, template *daemon.BlockTemplat
 		CoinbaseValue:    template.CoinbaseValue,
 		RawPrevBlockHash: template.PreviousBlockHash,
 		NetworkTarget:    template.Target,
-                // eCash RTT data (nil for non-XEC coins)
-                RTTPrevHeaderTime: func() []int64 {
-                        if template.RTT != nil {
-                                return template.RTT.PrevHeaderTime
-                        }
-                        return nil
-                }(),
-                RTTPrevBits: func() string {
-                        if template.RTT != nil {
-                                return template.RTT.PrevBits
-                        }
-                        return ""
-                }(),
-                RTTNextTarget: func() string {
-                        if template.RTT != nil {
-                                return template.RTT.NextTarget
-                        }
-                        return ""
-                }(),
-                RTTBits: template.Bits,
+	}
+
+	// For XEC: deduct mandatory MinerFund and StakingRewards so job.CoinbaseValue
+	// reflects what the pool actually receives, not the gross coinbase output.
+	if template.CoinbaseTxn != nil {
+		if mf := template.CoinbaseTxn.MinerFund; mf != nil && len(mf.Addresses) > 0 {
+			job.CoinbaseValue -= mf.MinimumValue
+		}
+		if sr := template.CoinbaseTxn.StakingRewards; sr != nil && sr.PayoutScript.Hex != "" {
+			job.CoinbaseValue -= sr.MinimumValue
+		}
+		if job.CoinbaseValue < 0 {
+			job.CoinbaseValue = 0
+		}
 	}
 
 	// Validate NetworkTarget — empty means block detection falls back to compact bits
@@ -903,6 +906,14 @@ func (m *Manager) generateJob(ctx context.Context, template *daemon.BlockTemplat
 			"height", template.Height,
 			"auxChains", len(auxBlocks),
 		)
+	}
+
+	// Populate RTT fields for eCash (XEC) — nil-safe, no-op for all other coins
+	if template.RTT != nil && len(template.RTT.PrevHeaderTime) >= 2 {
+		job.RTTPrevHeaderTime = template.RTT.PrevHeaderTime
+		job.RTTPrevBits = template.RTT.PrevBits
+		job.RTTNextTarget = template.RTT.NextTarget
+		job.RTTBits = template.Bits
 	}
 
 	return job, nil
@@ -1150,101 +1161,109 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 	// Sequence
 	cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
 
-        // eCash (XEC): detect mandatory coinbase outputs from template
-        // For non-XEC coins, CoinbaseTxn is nil so all these are false (no change to existing behavior)
-        hasMinerFund := template.CoinbaseTxn != nil && template.CoinbaseTxn.MinerFund != nil &&
-                len(template.CoinbaseTxn.MinerFund.Addresses) > 0 && template.CoinbaseTxn.MinerFund.MinimumValue > 0
-        hasStakingRewards := template.CoinbaseTxn != nil && template.CoinbaseTxn.StakingRewards != nil &&
-                template.CoinbaseTxn.StakingRewards.MinimumValue > 0 && template.CoinbaseTxn.StakingRewards.PayoutScript.Hex != ""
+	// ═══════════════════════════════════════════════════════════════════════════
+	// XEC (eCash) MANDATORY COINBASE OUTPUTS
+	// Post-Nov 2020 upgrade: MinerFund and StakingRewards outputs are required.
+	// Pool reward = CoinbaseValue - MinerFund.MinimumValue - StakingRewards.MinimumValue
+	// ═══════════════════════════════════════════════════════════════════════════
+	var (
+		minerFundScript  []byte
+		minerFundAmount  int64
+		stakingScript    []byte
+		stakingAmount    int64
+		hasMinerFund     bool
+		hasStakingReward bool
+	)
+	if template.CoinbaseTxn != nil {
+		if mf := template.CoinbaseTxn.MinerFund; mf != nil && len(mf.Addresses) > 0 {
+			if s, err := coin.DecodeMinerFundScript(mf.Addresses[0]); err == nil {
+				minerFundScript = s
+				minerFundAmount = mf.MinimumValue
+				hasMinerFund = true
+			} else {
+				m.logger.Warnw("XEC: failed to decode MinerFund address — omitting mandatory output (block may be rejected)",
+					"address", mf.Addresses[0], "error", err)
+			}
+		}
+		if sr := template.CoinbaseTxn.StakingRewards; sr != nil && sr.PayoutScript.Hex != "" {
+			if s, err := coin.DecodeStakingScript(sr.PayoutScript.Hex); err == nil {
+				stakingScript = s
+				stakingAmount = sr.MinimumValue
+				hasStakingReward = true
+			} else {
+				m.logger.Warnw("XEC: failed to decode StakingRewards script — omitting mandatory output (block may be rejected)",
+					"hex", sr.PayoutScript.Hex, "error", err)
+			}
+		}
+	}
 
+	// Deduct mandatory outputs from the pool's reward
+	poolReward := template.CoinbaseValue
+	if poolReward < 0 {
+		m.logger.Errorw("CRITICAL: Negative coinbase value from node - possible attack or bug",
+			"value", template.CoinbaseValue)
+		poolReward = 0
+	}
+	if hasMinerFund {
+		poolReward -= minerFundAmount
+	}
+	if hasStakingReward {
+		poolReward -= stakingAmount
+	}
+	if poolReward < 0 {
+		poolReward = 0
+	}
 
 	// Output count - MUST be calculated BEFORE appending outputs
 	// 1 output for pool reward, optionally +1 for witness commitment.
+	// For XEC: +1 for MinerFund, +1 for StakingRewards (each when present).
 	// CRITICAL: Only include witness commitment for coins that support SegWit.
-	// Non-SegWit coins (e.g. QBX) must use outputCount=1 or the node returns
+	// Non-SegWit coins (e.g. QBX, XEC) must use outputCount=1+ or the node returns
 	// "unexpected-witness" and rejects the block.
 	// nil coinImpl: default to including witness (backwards-compatible for SegWit coins).
 	segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
 	includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
-        outputCount := byte(0x01)
-        if hasMinerFund {
-                outputCount++
-        }
-        if hasStakingRewards {
-                outputCount++
-        }
-        if includeWitness {
-                outputCount++
-        }
+	outputCount := byte(0x01)
+	if hasMinerFund {
+		outputCount++
+	}
+	if hasStakingReward {
+		outputCount++
+	}
+	if includeWitness {
+		outputCount++
+	}
 	cb2 = append(cb2, outputCount)
 
-	// Output 1: Pool reward (coinbase reward in satoshis, little-endian)
-        // For eCash: subtract mandatory MinerFund and StakingRewards from total reward
-        // For other coins: poolReward == template.CoinbaseValue (no change)
-        poolReward := template.CoinbaseValue
-        if hasMinerFund {
-                poolReward -= template.CoinbaseTxn.MinerFund.MinimumValue
-        }
-        if hasStakingRewards {
-                poolReward -= template.CoinbaseTxn.StakingRewards.MinimumValue
-        }
-        // SECURITY: Validate coinbase value is non-negative (G115 fix)
-        if poolReward < 0 {
-                m.logger.Errorw("CRITICAL: Negative pool reward after deductions",
-                        "coinbaseValue", template.CoinbaseValue,
-                        "poolReward", poolReward,
-                )
-                poolReward = 0
-        }
-        valueBytes := make([]byte, 8)
-        binary.LittleEndian.PutUint64(valueBytes, uint64(poolReward))
-
+	// Output 1: Pool reward (coinbase reward in satoshis, little-endian).
+	// For XEC: poolReward has already had MinerFund + StakingRewards deducted above.
+	// For all other coins: poolReward == template.CoinbaseValue.
+	valueBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(valueBytes, uint64(poolReward))
 	cb2 = append(cb2, valueBytes...)
 
 	// Output script (pay to pool address) - uses coin-specific script builder
 	script := m.buildOutputScript()
-	cb2 = append(cb2, byte(len(script)))
+	cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
 	cb2 = append(cb2, script...)
 
-        // Output 2 (eCash only): MinerFund - mandatory coinbase output
-        // Goes to the address specified in the template. Omitting this = rejected block.
-        if hasMinerFund {
-                minerFundAddress := template.CoinbaseTxn.MinerFund.Addresses[0]
-                minerFundScript, buildErr := m.coinImpl.BuildCoinbaseScript(coin.CoinbaseParams{
-                        PoolAddress: minerFundAddress,
-                })
-                if buildErr != nil {
-                        m.logger.Errorw("CRITICAL: Failed to build MinerFund script",
-                                "error", buildErr,
-                                "address", minerFundAddress,
-                        )
-                } else {
-                        minerFundValueBytes := make([]byte, 8)
-                        binary.LittleEndian.PutUint64(minerFundValueBytes, uint64(template.CoinbaseTxn.MinerFund.MinimumValue))
-                        cb2 = append(cb2, minerFundValueBytes...)
-                        cb2 = append(cb2, byte(len(minerFundScript)))
-                        cb2 = append(cb2, minerFundScript...)
-                }
-        }
+	// Output 2 (XEC only): MinerFund — mandatory Infrastructure Funding Plan output
+	if hasMinerFund {
+		minerFundValueBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(minerFundValueBytes, uint64(minerFundAmount))
+		cb2 = append(cb2, minerFundValueBytes...)
+		cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+		cb2 = append(cb2, minerFundScript...)
+	}
 
-        // Output 3 (eCash only): StakingRewards - mandatory coinbase output
-        // Script is provided directly in hex. Omitting this = rejected block.
-        if hasStakingRewards {
-                stakingScript, decodeErr := hex.DecodeString(template.CoinbaseTxn.StakingRewards.PayoutScript.Hex)
-                if decodeErr != nil {
-                        m.logger.Errorw("CRITICAL: Failed to decode StakingRewards script",
-                                "error", decodeErr,
-                                "hex", template.CoinbaseTxn.StakingRewards.PayoutScript.Hex,
-                        )
-                } else {
-                        stakingValueBytes := make([]byte, 8)
-                        binary.LittleEndian.PutUint64(stakingValueBytes, uint64(template.CoinbaseTxn.StakingRewards.MinimumValue))
-                        cb2 = append(cb2, stakingValueBytes...)
-                        cb2 = append(cb2, byte(len(stakingScript)))
-                        cb2 = append(cb2, stakingScript...)
-                }
-        }
-
+	// Output 3 (XEC only): StakingRewards — mandatory post-upgrade staking output
+	if hasStakingReward {
+		stakingValueBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(stakingValueBytes, uint64(stakingAmount))
+		cb2 = append(cb2, stakingValueBytes...)
+		cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+		cb2 = append(cb2, stakingScript...)
+	}
 
 	// Output 2: Witness commitment (if present)
 	// This is required for blocks containing SegWit transactions
@@ -1261,14 +1280,35 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 				"error", err,
 				"commitment", template.DefaultWitnessCommitment,
 			)
-			// Revert output count to 1 - rebuild cb2 without witness commitment
-			// This loses segwit transaction fees but produces a valid block
+			// Revert — rebuild cb2 without witness commitment.
+			// This loses segwit transaction fees but produces a valid block.
+			noWitnessCount := byte(0x01)
+			if hasMinerFund {
+				noWitnessCount++
+			}
+			if hasStakingReward {
+				noWitnessCount++
+			}
 			cb2 = make([]byte, 0, 128)
 			cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff) // Sequence
-			cb2 = append(cb2, 0x01)                   // Output count = 1 (no witness)
+			cb2 = append(cb2, noWitnessCount)
 			cb2 = append(cb2, valueBytes...)
-			cb2 = append(cb2, byte(len(script)))
+			cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
 			cb2 = append(cb2, script...)
+			if hasMinerFund {
+				mfvb := make([]byte, 8)
+				binary.LittleEndian.PutUint64(mfvb, uint64(minerFundAmount))
+				cb2 = append(cb2, mfvb...)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+				cb2 = append(cb2, minerFundScript...)
+			}
+			if hasStakingReward {
+				srvb := make([]byte, 8)
+				binary.LittleEndian.PutUint64(srvb, uint64(stakingAmount))
+				cb2 = append(cb2, srvb...)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+				cb2 = append(cb2, stakingScript...)
+			}
 		} else {
 			// Validate witness script format (should start with 0x6a = OP_RETURN)
 			if len(witnessScript) < 2 || witnessScript[0] != 0x6a {
@@ -1276,13 +1316,34 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 					"firstByte", fmt.Sprintf("0x%02x", witnessScript[0]),
 					"expected", "0x6a (OP_RETURN)",
 				)
-				// Revert to single output
+				// Revert — rebuild cb2 without witness commitment.
+				noWitnessCount2 := byte(0x01)
+				if hasMinerFund {
+					noWitnessCount2++
+				}
+				if hasStakingReward {
+					noWitnessCount2++
+				}
 				cb2 = make([]byte, 0, 128)
 				cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
-				cb2 = append(cb2, 0x01)
+				cb2 = append(cb2, noWitnessCount2)
 				cb2 = append(cb2, valueBytes...)
-				cb2 = append(cb2, byte(len(script)))
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
 				cb2 = append(cb2, script...)
+				if hasMinerFund {
+					mfvb2 := make([]byte, 8)
+					binary.LittleEndian.PutUint64(mfvb2, uint64(minerFundAmount))
+					cb2 = append(cb2, mfvb2...)
+					cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+					cb2 = append(cb2, minerFundScript...)
+				}
+				if hasStakingReward {
+					srvb2 := make([]byte, 8)
+					binary.LittleEndian.PutUint64(srvb2, uint64(stakingAmount))
+					cb2 = append(cb2, srvb2...)
+					cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+					cb2 = append(cb2, stakingScript...)
+				}
 			} else {
 				// Value: 0 satoshis (witness commitment outputs have zero value)
 				cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
