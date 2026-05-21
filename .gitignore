@@ -186,3 +186,4 @@ authorized_keys
 CLAUDE.md
 claude.md
 .claude/
+docker/config/dashboard_config.json

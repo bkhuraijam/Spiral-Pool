@@ -3023,7 +3023,75 @@
 
         <div id="sortable-sections">
 
-        <!-- Statistics Charts -->
+ 
+        <section class="collapsible-section" id="worker-stats-section" style="margin-bottom: 1rem;">
+            <div class="collapsible-header" onclick="toggleSection('worker-stats-section')">
+                <h3 id="worker-stats-title">Worker Statistics (24h)</h3>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <div id="worker-window-buttons" style="display:flex; gap:4px;" onclick="event.stopPropagation()">
+                        <button onclick="fetchWorkerStats(10)" id="ws-btn-10" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">10m</button>
+                        <button onclick="fetchWorkerStats(60)" id="ws-btn-60" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">1h</button>
+                        <button onclick="fetchWorkerStats(1440)" id="ws-btn-1440" style="background:var(--accent-primary);color:var(--bg-body);border:1px solid var(--accent-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">24h</button>
+                    </div>
+                    <span class="collapsible-toggle">▼</span>
+                </div>
+            </div>
+            <div class="collapsible-content" id="worker-stats-body">
+                <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading worker statistics…</div>
+            </div>
+        </section>
+
+        <!-- Multi-Coin Rotation Status -->
+        <section class="collapsible-section" id="rotation-widget" data-section-id="rotation" style="display:none;">
+            <div class="collapsible-header" onclick="toggleSection('rotation-widget')">
+                <span class="drag-handle" title="Drag to reorder">⠿</span>
+                <h3>🔀 Multi-Coin Rotation</h3>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <span id="rotation-active-badge" class="coin-badge" style="font-size:0.65rem; display:none;">--</span>
+                    <span class="collapsible-toggle">▼</span>
+                </div>
+            </div>
+            <div class="collapsible-content rotation-body">
+                <div class="rotation-live-bar">
+                    <div class="rotation-live-item">
+                        <span class="rotation-live-label">Active Coin</span>
+                        <span class="rotation-live-value active-coin" id="rotation-active-coin" style="color: var(--neon-cyan);">--</span>
+                    </div>
+                    <div class="rotation-live-item">
+                        <span class="rotation-live-label">Time Remaining</span>
+                        <span class="rotation-live-value" id="rotation-time-remaining" style="color: var(--neon-green);">--</span>
+                    </div>
+                    <div class="rotation-live-item">
+                        <span class="rotation-live-label">Next Switch</span>
+                        <span class="rotation-live-value" id="rotation-next-switch" style="color: var(--neon-orange);">--</span>
+                    </div>
+                </div>
+                <div class="rotation-timeline" id="rotation-timeline"></div>
+                <div class="rotation-timeline-labels">
+                    <span>00:00</span>
+                    <span>06:00</span>
+                    <span>12:00</span>
+                    <span>18:00</span>
+                    <span>24:00</span>
+                </div>
+                <table class="rotation-schedule-table">
+                    <thead>
+                        <tr>
+                            <th>Coin</th>
+                            <th>Weight</th>
+                            <th>Hours</th>
+                            <th>Schedule</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rotation-schedule-body"></tbody>
+                </table>
+                <div class="rotation-meta">
+                    <span>Port: <span id="rotation-port">16180</span></span>
+                    <span><span id="rotation-meta-tz-label">Timezone:</span> <span id="rotation-timezone">--</span></span>
+                </div>
+            </div>
+        </section>
+
         <section class="collapsible-section" id="charts-section" data-section-id="charts-section" style="margin-bottom:-1.5rem">
             <div class="collapsible-header" onclick="toggleSection('charts-section')">
                 <span class="drag-handle" title="Drag to reorder">⠿</span>
@@ -3306,74 +3374,6 @@
             </div>
         </section>
 
-        <!-- Per-Coin Worker Stats -->
-        <section class="collapsible-section" id="worker-stats-section" style="margin-bottom: 1rem;">
-            <div class="collapsible-header" onclick="toggleSection('worker-stats-section')">
-                <h3 id="worker-stats-title">Worker Statistics (24h)</h3>
-                <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <div id="worker-window-buttons" style="display:flex; gap:4px;" onclick="event.stopPropagation()">
-                        <button onclick="fetchWorkerStats(10)" id="ws-btn-10" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">10m</button>
-                        <button onclick="fetchWorkerStats(60)" id="ws-btn-60" style="background:var(--border-primary);color:var(--text-muted);border:1px solid var(--border-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">1h</button>
-                        <button onclick="fetchWorkerStats(1440)" id="ws-btn-1440" style="background:var(--accent-primary);color:var(--bg-body);border:1px solid var(--accent-primary);padding:2px 8px;border-radius:3px;font-size:0.65rem;cursor:pointer;">24h</button>
-                    </div>
-                    <span class="collapsible-toggle">▼</span>
-                </div>
-            </div>
-            <div class="collapsible-content" id="worker-stats-body">
-                <div style="padding:40px;text-align:center;color:var(--text-muted);">Loading worker statistics…</div>
-            </div>
-        </section>
-
-        <!-- Multi-Coin Rotation Status -->
-        <section class="collapsible-section" id="rotation-widget" data-section-id="rotation" style="display:none;">
-            <div class="collapsible-header" onclick="toggleSection('rotation-widget')">
-                <span class="drag-handle" title="Drag to reorder">⠿</span>
-                <h3>🔀 Multi-Coin Rotation</h3>
-                <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <span id="rotation-active-badge" class="coin-badge" style="font-size:0.65rem; display:none;">--</span>
-                    <span class="collapsible-toggle">▼</span>
-                </div>
-            </div>
-            <div class="collapsible-content rotation-body">
-                <div class="rotation-live-bar">
-                    <div class="rotation-live-item">
-                        <span class="rotation-live-label">Active Coin</span>
-                        <span class="rotation-live-value active-coin" id="rotation-active-coin" style="color: var(--neon-cyan);">--</span>
-                    </div>
-                    <div class="rotation-live-item">
-                        <span class="rotation-live-label">Time Remaining</span>
-                        <span class="rotation-live-value" id="rotation-time-remaining" style="color: var(--neon-green);">--</span>
-                    </div>
-                    <div class="rotation-live-item">
-                        <span class="rotation-live-label">Next Switch</span>
-                        <span class="rotation-live-value" id="rotation-next-switch" style="color: var(--neon-orange);">--</span>
-                    </div>
-                </div>
-                <div class="rotation-timeline" id="rotation-timeline"></div>
-                <div class="rotation-timeline-labels">
-                    <span>00:00</span>
-                    <span>06:00</span>
-                    <span>12:00</span>
-                    <span>18:00</span>
-                    <span>24:00</span>
-                </div>
-                <table class="rotation-schedule-table">
-                    <thead>
-                        <tr>
-                            <th>Coin</th>
-                            <th>Weight</th>
-                            <th>Hours</th>
-                            <th>Schedule</th>
-                        </tr>
-                    </thead>
-                    <tbody id="rotation-schedule-body"></tbody>
-                </table>
-                <div class="rotation-meta">
-                    <span>Port: <span id="rotation-port">16180</span></span>
-                    <span><span id="rotation-meta-tz-label">Timezone:</span> <span id="rotation-timezone">--</span></span>
-                </div>
-            </div>
-        </section>
 
         <!-- Activity Feed & Top Block Finders -->
         <section class="collapsible-section" id="activity-section" data-section-id="activity">
@@ -3528,12 +3528,13 @@
                                 </td>
                                 <td style="padding: 10px 8px;">
                                     {% if block.effort is not none and block.effort != 0 %}
-                                        {% set luck = block.effort * 100 %}
-                                        <span style="color: {% if luck <= 100 %}#00ff00{% else %}#ffaa00{% endif %}; font-weight: bold;">
-                                            {{ "{:,.2f}%".format(luck) }}
-                                        </span>
-                                    {% elif block.effort == 0 %}
-                                        <span style="color: #ffaa00; font-weight: bold;">0.00%</span>
+                                       {% set luck = block.effort %}
+                                       <span style="color: {% if luck <= 100 %}#00ff00{% else %}#ffaa00{% endif %}; font-weight: bold;">
+                                       {{ "{:,.2f}%".format(luck) }}
+                                       </span>
+                                       {% elif block.effort == 0 %}
+                                       <span style="color: var(--text-muted);">---</span>
+
                                     {% else %}
                                         <span style="color: var(--text-muted);">---</span>
                                     {% endif %}
@@ -3887,7 +3888,7 @@
         // Restore collapsed states on load
         function restoreCollapsedStates() {
             const defaultCollapsed = [];
-            const sections = ['charts-section', 'rotation', 'miners-section', 'earnings-section', 'health-section', 'activity-section', 'management-section', 'worker-stats-section'];
+            const sections = ['worker-stats-section', 'rotation', 'charts-section', 'miners-section', 'earnings-section', 'health-section', 'activity-section', 'management-section'];
             if (!localStorage.getItem('spiral_collapse_v2')) {
                 sections.forEach(s => localStorage.removeItem('section_' + s));
                 localStorage.setItem('spiral_collapse_v2', '1');
