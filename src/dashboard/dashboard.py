@@ -10973,35 +10973,25 @@ def api_worker_stats():
         minutes = 1440
 
     worker_stats = get_worker_stats_from_db(list(WORKER_STATS_POOL_MAP.keys()), minutes=minutes)
-    # Get live network difficulty from cached stratum stats
-    live_net_diff = {}
-    try:
-        per_coin = pool_stats_cache.get("per_coin", {})
-        for coin, stats in per_coin.items():
-            if isinstance(stats, dict):
-                live_net_diff[coin] = float(stats.get("difficulty", 0))
-    except Exception:
-        pass
 
     result = {}
-    window_seconds = minutes * 60
     for pool_id, rows in worker_stats.items():
         coin = WORKER_STATS_POOL_MAP.get(pool_id, pool_id)
         result[coin] = []
         for row in rows:
-            shares = int(row['shares'])
-            elapsed = float(row.get('elapsed_seconds') or 0)
-            avg_diff = float(row.get('avg_diff') or 0)
-            # Use window duration for hashrate, not just elapsed time between shares
-            # This prevents overestimation when few shares exist in the window
-            duration = max(60, elapsed) if elapsed > 0 else max(60, window_seconds)
-            hashrate = (shares / duration) * avg_diff * (2 ** 32) if duration > 0 and avg_diff > 0 else 0
+            # Use db-reported hashrate if available (from share-derived data),
+            # otherwise calculate from difficulty sum
+            hr = row.get('hashrate', 0)
+            if hr and hr > 0:
+                hashrate = hr
+            else:
+                hashrate = (float(row.get('difficulty_sum', 0)) * (2**32)) / (minutes * 60) / 1e12
             result[coin].append({
                 'worker':       row['worker'],
-                'shares':       shares,
-                'hashrate':     round(hashrate, 2),
+                'shares':       row['shares'],
+                'hashrate':     hashrate,
                 'best_diff':    float(row['best_diff']) if row['best_diff'] else 0,
-                'network_diff': live_net_diff.get(coin, float(row['network_diff']) if row['network_diff'] else 0),
+                'network_diff': float(row['network_diff']) if row['network_diff'] else 0,
                 'last_share':   row['last_share'].strftime('%m-%d %H:%M') if row['last_share'] else None,
             })
     return jsonify(result)
@@ -17284,6 +17274,54 @@ maintenance_mode = {
 }
 
 
+def _unified_maintenance_file():
+    """Path to the maintenance file the Sentinel reads (see SpiralSentinel
+    check_ha_maintenance_propagation / maintenance-mode.sh)."""
+    install_dir = os.environ.get("SPIRALPOOL_INSTALL_DIR", "/spiralpool")
+    return Path(install_dir) / "config" / ".maintenance-mode"
+
+
+def write_unified_maintenance_file(duration_minutes, reason):
+    """Persist maintenance state to the unified file so the Sentinel suppresses
+    alerts. Without this the dashboard toggle only sets in-process state that the
+    separate Sentinel process never sees. Written atomically as the pool user
+    (the dashboard service user), so the Sentinel — same user — can read it."""
+    target = _unified_maintenance_file()
+    now = time.time()
+    payload = {
+        "enabled": True,
+        "start_time": now,
+        "end_time": now + (duration_minutes * 60),
+        "duration_minutes": duration_minutes,
+        "reason": reason,
+        "started_by": "dashboard",
+        "node_uuid": "dashboard",
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".tmp", prefix=".maintenance-mode_", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def clear_unified_maintenance_file():
+    """Remove the unified maintenance file so the Sentinel resumes alerting."""
+    try:
+        _unified_maintenance_file().unlink(missing_ok=True)
+    except OSError as e:
+        app.logger.warning("Could not remove maintenance file: %s", e)
+
+
 def load_miner_groups():
     """Load miner groups from config"""
     global miner_groups
@@ -18280,16 +18318,43 @@ def set_maintenance_mode():
     global maintenance_mode
     data = request.json or {}
     enabled = bool(data.get("enabled", False))
-    reason = str(data.get("reason", "Scheduled maintenance"))[:256].strip()
+    reason = str(data.get("reason", "Scheduled maintenance"))[:256].strip() or "Scheduled maintenance"
+    pause_alerts = bool(data.get("pause_alerts", True))
+
+    # Duration for the unified maintenance file the Sentinel reads. Clamp to the
+    # same 1 min .. 1 week bounds enforced by maintenance-mode.sh.
+    try:
+        duration_minutes = int(data.get("duration_minutes", 60))
+    except (TypeError, ValueError):
+        duration_minutes = 60
+    duration_minutes = max(1, min(duration_minutes, 10080))
 
     maintenance_mode["enabled"] = enabled
     maintenance_mode["reason"] = reason
-    maintenance_mode["paused_alerts"] = bool(data.get("pause_alerts", True))
+    maintenance_mode["paused_alerts"] = pause_alerts
 
-    if enabled:
-        maintenance_mode["started_at"] = datetime.utcnow().isoformat()
-    else:
-        maintenance_mode["started_at"] = None
+    # Propagate to the unified maintenance file so the Sentinel (a separate process)
+    # actually suppresses alerts. Only do so when the operator wants alerts paused;
+    # otherwise maintenance is informational only and alerts should keep flowing.
+    try:
+        if enabled:
+            maintenance_mode["started_at"] = datetime.utcnow().isoformat()
+            if pause_alerts:
+                write_unified_maintenance_file(duration_minutes, reason)
+            else:
+                clear_unified_maintenance_file()
+        else:
+            maintenance_mode["started_at"] = None
+            clear_unified_maintenance_file()
+    except Exception as e:
+        app.logger.error("Failed to update maintenance file: %s", e)
+        return jsonify({
+            "success": False,
+            "error": "Maintenance state updated in dashboard but could not be "
+                     "propagated to the Sentinel (file write failed). Alerts may "
+                     "not be suppressed.",
+            "maintenance": maintenance_mode
+        }), 500
 
     return jsonify({
         "success": True,
