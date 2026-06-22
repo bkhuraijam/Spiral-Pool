@@ -122,7 +122,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '10'
           memory: 12G
         reservations:
           memory: 4G
@@ -166,7 +166,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '10'
           memory: 12G
         reservations:
           memory: 4G
@@ -208,7 +208,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '10'
           memory: 10G
         reservations:
           memory: 2G

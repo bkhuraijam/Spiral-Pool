@@ -10,7 +10,7 @@
 # ║   remove coins from your pool configuration.                               ║
 # ║                                                                            ║
 # ║   Supported Coins: DGB, BTC, BCH, BCH2, BC2, BTCS, XEC, LTC, DOGE,         ║
-# ║                    DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, QBX          ║
+# ║                    DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC          ║
 # ║                                                                            ║
 # ║   Usage:                                                                   ║
 # ║     ./pool-mode.sh                    # Interactive mode                   ║
@@ -192,7 +192,6 @@ $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start dogecoind, /bin/systemctl 
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start pepecoind, /bin/systemctl stop pepecoind, /bin/systemctl restart pepecoind, /bin/systemctl enable pepecoind, /bin/systemctl disable pepecoind
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start catcoind, /bin/systemctl stop catcoind, /bin/systemctl restart catcoind, /bin/systemctl enable catcoind, /bin/systemctl disable catcoind
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start fractald, /bin/systemctl stop fractald, /bin/systemctl restart fractald, /bin/systemctl enable fractald, /bin/systemctl disable fractald
-$HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start qbitxd, /bin/systemctl stop qbitxd, /bin/systemctl restart qbitxd, /bin/systemctl enable qbitxd, /bin/systemctl disable qbitxd
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start namecoind, /bin/systemctl stop namecoind, /bin/systemctl restart namecoind, /bin/systemctl enable namecoind, /bin/systemctl disable namecoind
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start syscoind, /bin/systemctl stop syscoind, /bin/systemctl restart syscoind, /bin/systemctl enable syscoind, /bin/systemctl disable syscoind
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /bin/systemctl start myriadcoind, /bin/systemctl stop myriadcoind, /bin/systemctl restart myriadcoind, /bin/systemctl enable myriadcoind, /bin/systemctl disable myriadcoind
@@ -220,7 +219,6 @@ $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/bitcoinsilver-cli -conf=/spiralp
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/litecoin-cli -conf=/spiralpool/ltc/litecoin.conf getblockchaininfo
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/dogecoin-cli -conf=/spiralpool/doge/dogecoin.conf getblockchaininfo
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/fractal-cli -conf=/spiralpool/fbtc/fractal.conf getblockchaininfo
-$HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/qbitx-cli -conf=/spiralpool/qbx/qbitx.conf getblockchaininfo
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/pepecoin-cli -conf=/spiralpool/pep/pepecoin.conf getblockchaininfo
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/catcoin-cli -conf=/spiralpool/cat/catcoin.conf getblockchaininfo
 $HA_SSH_USER ALL=(ALL) NOPASSWD: /usr/local/bin/namecoin-cli -conf=/spiralpool/nmc/namecoin.conf getblockchaininfo
@@ -1741,12 +1739,6 @@ check_remote_blockchain_sync() {
             conf_path="$SPIRALPOOL_DIR/fbtc/fractal.conf"
             conf_path_alt=""
             ;;
-        QBX)
-            rpc_port=8344
-            cli_cmd="qbitx-cli"
-            conf_path="$SPIRALPOOL_DIR/qbx/qbitx.conf"
-            conf_path_alt=""
-            ;;
     esac
 
     # Execute getblockchaininfo on the remote node via SSH as HA user
@@ -2063,7 +2055,6 @@ sync_ha_cluster() {
                 SYS) service="syscoind" ;;
                 XMY) service="myriadcoind" ;;
                 FBTC) service="fractald" ;;
-                QBX) service="qbitxd" ;;
                 DGB-SCRYPT) service="digibyted" ;;  # Shares node with DGB
             esac
 
@@ -2119,7 +2110,7 @@ sync_ha_cluster() {
         done
 
         # Stop nodes for coins NOT in the list (includes all SHA-256d and Scrypt coins)
-        for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC QBX; do
+        for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC; do
             local in_list=false
             for new_coin in "${new_coins[@]}"; do
                 if [ "$coin" = "$new_coin" ]; then
@@ -2145,7 +2136,6 @@ sync_ha_cluster() {
                     SYS) service="syscoind" ;;
                     XMY) service="myriadcoind" ;;
                     FBTC) service="fractald" ;;
-                    QBX) service="qbitxd" ;;
                     DGB-SCRYPT) service="digibyted" ;;  # Shares node with DGB
                 esac
 
@@ -2232,7 +2222,6 @@ detect_current_coins() {
     CURRENT_SYS=false
     CURRENT_XMY=false
     CURRENT_FBTC=false
-    CURRENT_QBX=false
     CURRENT_LTC=false
     CURRENT_DOGE=false
     CURRENT_DGBSCRYPT=false
@@ -2284,10 +2273,6 @@ detect_current_coins() {
         if grep -qE "symbol:\s*[\"']?FBTC[\"']?" "$CONFIG_FILE" 2>/dev/null; then
             CURRENT_FBTC=true
             CURRENT_COINS+=("FBTC")
-        fi
-        if grep -qE "symbol:\s*[\"']?QBX[\"']?" "$CONFIG_FILE" 2>/dev/null; then
-            CURRENT_QBX=true
-            CURRENT_COINS+=("QBX")
         fi
         if grep -qE "symbol:\s*[\"']?LTC[\"']?" "$CONFIG_FILE" 2>/dev/null; then
             CURRENT_LTC=true
@@ -2371,9 +2356,6 @@ check_node_installed() {
         FBTC)
             [ -x "/usr/local/bin/fractald" ] || systemctl is-enabled fractald &>/dev/null 2>&1
             ;;
-        QBX)
-            [ -x "/usr/local/bin/qbitx" ] || systemctl is-enabled qbitxd &>/dev/null 2>&1
-            ;;
         DGB-SCRYPT)
             # DGB-SCRYPT uses the same node as DGB (DigiByte Core)
             [ -x "/usr/local/bin/digibyted" ] || systemctl is-enabled digibyted &>/dev/null 2>&1
@@ -2405,7 +2387,7 @@ print_status() {
 
     echo ""
     echo "  Node Status:"
-    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC QBX; do
+    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC; do
         if check_node_installed "$coin"; then
             echo -e "    $coin: ${GREEN}Installed${NC}"
         else
@@ -2419,7 +2401,7 @@ print_status() {
 validate_coin() {
     local coin=$1
     case $coin in
-        DGB|BTC|BCH|BCH2|BC2|BTCS|XEC|LTC|DOGE|DGB-SCRYPT|PEP|CAT|NMC|SYS|XMY|FBTC|QBX) return 0 ;;
+        DGB|BTC|BCH|BCH2|BC2|BTCS|XEC|LTC|DOGE|DGB-SCRYPT|PEP|CAT|NMC|SYS|XMY|FBTC) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -2451,7 +2433,6 @@ get_wallet_address() {
                 SYS)            [[ ! "$NON_INTERACTIVE_WALLET" =~ ^(S|sys1|tsys1) ]] && valid=false ;;
                 XMY)            [[ ! "$NON_INTERACTIVE_WALLET" =~ ^(M|my1) ]] && valid=false ;;
                 FBTC)           [[ ! "$NON_INTERACTIVE_WALLET" =~ ^(1|3|bc1) ]] && valid=false ;;
-                QBX)            [[ ! "$NON_INTERACTIVE_WALLET" =~ ^(M|P|pq) ]] && valid=false ;;
             esac
             if [ "$valid" = false ]; then
                 echo -e "${RED}Error: Wallet address '${NON_INTERACTIVE_WALLET}' does not match expected format for $coin${NC}" >&2
@@ -2781,16 +2762,6 @@ get_wallet_address() {
                 [[ ! "$confirm" =~ ^[Yy]$ ]] && return 1
             fi
             ;;
-        QBX)
-            echo -e "${CYAN}Enter your Q-BitX (QBX) wallet address:${NC}" >&2
-            echo "(Addresses starting with M (P2PKH), P (P2SH), or pq (post-quantum) are valid)" >&2
-            read -p "QBX Address: " address
-            if [[ ! "$address" =~ ^(M|P|pq) ]]; then
-                echo -e "${YELLOW}Warning: Address doesn't look like a valid Q-BitX address${NC}" >&2
-                read -p "Continue anyway? (y/N): " confirm
-                [[ ! "$confirm" =~ ^[Yy]$ ]] && return 1
-            fi
-            ;;
     esac
 
     # SECURITY: Sanitize address — strip any characters that could cause shell/YAML injection.
@@ -2878,9 +2849,6 @@ read_node_rpc_credentials() {
             ;;
         FBTC)
             conf_file="$SPIRALPOOL_DIR/fbtc/fractal.conf"
-            ;;
-        QBX)
-            conf_file="$SPIRALPOOL_DIR/qbx/qbitx.conf"
             ;;
         XEC)
             conf_file="$SPIRALPOOL_DIR/xec/bitcoin.conf"
@@ -3667,55 +3635,6 @@ EOF
 
 EOF
             ;;
-        QBX)
-            cat << EOF
-  # Q-BitX (QBX) - SHA256d Post-Quantum Bitcoin Fork (standalone)
-  - symbol: QBX
-    pool_id: qbx_mainnet
-    enabled: true
-    address: "$address"
-    coinbase_text: "Spiral Pool"
-
-    stratum:
-      port: 20335
-      difficulty:
-        initial: 65536
-        varDiff:
-          enabled: true
-          minDiff: 1024
-          maxDiff: 100000000
-          targetTime: 10
-          retargetTime: 120
-          variancePercent: 30
-      banning:
-        enabled: true
-        banDuration: 600s
-        invalidSharesThreshold: 5
-      connection:
-        timeout: 600s
-        maxConnections: 10000
-      version_rolling:
-        enabled: true
-        mask: 536862720
-      job_rebroadcast: 55s
-
-    nodes:
-      - id: primary
-        host: 127.0.0.1
-        port: 8344
-        user: $rpc_user
-        password: "$rpc_pass"
-        priority: 0
-        weight: 1
-        zmq:
-          enabled: false
-
-    payments:
-      enabled: true
-      scheme: SOLO
-
-EOF
-            ;;
         XEC)
             cat << EOF
   # eCash (XEC) - SHA256d Bitcoin ABC fork (standalone, CashAddr addressing)
@@ -3800,7 +3719,6 @@ _coin_upgrade_target() {
         SYS)  _gh_repo="syscoin/syscoin" ;;
         XMY)  _gh_repo="myriadteam/myriadcoin" ;;
         FBTC) _gh_repo="fractal-bitcoin/fractald-release" ;;
-        QBX)  _gh_repo="q-bitx/Source-" ;;
         # BTC: handled by live bitcoinknots.org fetch in its download case
     esac
 
@@ -3845,7 +3763,9 @@ _coin_installed_version() {
         SYS)  _bin="syscoind" ;;
         XMY)  _bin="myriadcoind" ;;
         FBTC) _bin="fractald" ;;
-        QBX)  _bin="qbitx" ;;
+        BCH2) _bin="bitcoincashIId" ;;
+        BTCS) _bin="bitcoinsilverd" ;;
+        XEC)  _bin="ecashd" ;;
         *)    echo "unknown"; return ;;
     esac
     local _path
@@ -4146,37 +4066,6 @@ install_node_if_needed() {
             echo -e "${GREEN}✓ Fractal Bitcoin ${FBTC_VERSION} installed${NC}"
             ;;
 
-        QBX)
-            local QBX_VERSION; QBX_VERSION=$(_coin_upgrade_target QBX) \
-                || { echo -e "${RED}Cannot determine QBX target version from coin-upgrade.sh${NC}"; return 1; }
-            echo "Installing Q-BitX runtime dependencies..."
-            apt-get install -y -qq libevent-2.1-7 libleveldb1d libevent-pthreads-2.1-7t64 2>/dev/null \
-                || apt-get install -y -qq libevent-2.1-7 libleveldb1 libevent-pthreads-2.1-7 2>/dev/null || true
-            echo "Downloading Q-BitX ${QBX_VERSION}..."
-            local _qbx_bin_dir="${SPIRALPOOL_DIR}/qbx-bin"
-            mkdir -p "$_qbx_bin_dir"
-            local _qbx_fn="qbitx-linux-x86_64-v${QBX_VERSION}.zip"
-            cd /tmp
-            rm -f "$_qbx_fn"
-            wget -q --show-progress --max-redirect=5 \
-                "https://github.com/q-bitx/Source-/releases/download/v${QBX_VERSION}/${_qbx_fn}" \
-                || { echo -e "${RED}Failed to download Q-BitX${NC}"; return 1; }
-            rm -rf qbitx-extract
-            unzip -q "$_qbx_fn" -d qbitx-extract || { echo -e "${RED}Failed to extract Q-BitX${NC}"; return 1; }
-            # Binary may be at root or in a subdir — use find to be safe
-            local _d; _d=$(find qbitx-extract -name "qbitx" ! -name "*-cli" -type f | head -1)
-            local _c; _c=$(find qbitx-extract -name "qbitx-cli" -type f | head -1)
-            [[ -z "$_d" ]] && { echo -e "${RED}qbitx binary not found in archive${NC}"; return 1; }
-            install -m 755 -o "$POOL_USER" -g "$POOL_USER" "$_d" "$_qbx_bin_dir/qbitx"
-            [[ -n "$_c" ]] && install -m 755 -o "$POOL_USER" -g "$POOL_USER" "$_c" "$_qbx_bin_dir/qbitx-cli"
-            ln -sf "$_qbx_bin_dir/qbitx" /usr/local/bin/qbitx
-            ln -sf "$_qbx_bin_dir/qbitx-cli" /usr/local/bin/qbitx-cli
-            rm -rf /tmp/qbitx-extract /tmp/"$_qbx_fn"
-            # Record version so future checks (and coin-upgrade.sh) can detect it
-            mkdir -p "${SPIRALPOOL_DIR}/config/coin-versions"
-            echo "$QBX_VERSION" > "${SPIRALPOOL_DIR}/config/coin-versions/QBX.ver"
-            echo -e "${GREEN}✓ Q-BitX ${QBX_VERSION} installed${NC}"
-            ;;
 
         BCH2)
             # BCH2 (Bitcoin Cash II) — installed by install.sh install_bitcoincashii()
@@ -4193,6 +4082,15 @@ install_node_if_needed() {
             echo -e "${YELLOW}BTCS (Bitcoin Silver) must be installed via install.sh.${NC}"
             echo -e "  Run: ${GREEN}sudo bash install.sh${NC} and enable Bitcoin Silver."
             echo -e "  (Source build required — install.sh handles the full compile process)"
+            ;;
+
+        XEC)
+            # XEC (eCash) — Bitcoin ABC, installed by install.sh install_ecash()
+            # which downloads the Bitcoin ABC release into xec-bin/ and symlinks
+            # /usr/local/bin/ecashd -> bitcoind. Not safely replicated inline.
+            echo -e "${YELLOW}XEC (eCash) must be installed via install.sh.${NC}"
+            echo -e "  Run: ${GREEN}sudo bash install.sh${NC} and enable eCash."
+            echo -e "  (Bitcoin ABC — install.sh handles download + ecashd symlink)"
             ;;
     esac
 }
@@ -5235,71 +5133,6 @@ EOF
             ufw allow 18336/tcp comment "FBTC Stratum V2" 2>/dev/null || true
             ;;
 
-        QBX)
-            mkdir -p "$SPIRALPOOL_DIR/qbx"
-            chown -R "$POOL_USER:$POOL_USER" "$SPIRALPOOL_DIR/qbx"
-
-            get_existing_prune "$SPIRALPOOL_DIR/qbx/qbitx.conf"
-            cat > "$SPIRALPOOL_DIR/qbx/qbitx.conf" << EOF
-# Q-BITX - SPIRAL POOL CONFIGURATION
-# SHA-256d Post-Quantum Bitcoin Fork (standalone, not merge-mineable)
-# P2P port remapped from default 8334 to 8345 to avoid NMC conflict
-listen=1
-port=8345
-maxconnections=100
-datadir=$SPIRALPOOL_DIR/qbx
-server=1
-rpcuser=$rpc_user
-rpcpassword=$rpc_pass
-rpcallowip=127.0.0.1
-rpcbind=127.0.0.1
-rpcport=8344
-# NOTE: ZMQ not enabled — QBX binary compiled without ZMQ support
-dbcache=2048
-par=0
-disablewallet=0
-maxmempool=300
-debuglogfile=$SPIRALPOOL_DIR/qbx/debug.log
-printtoconsole=0
-prune=$EXISTING_PRUNE
-# Seed nodes for peer discovery
-forcednsseed=1
-seednode=seed.qbitx.org
-addnode=89.110.93.248:8334
-addnode=83.217.213.118:8334
-EOF
-            chown "$POOL_USER:$POOL_USER" "$SPIRALPOOL_DIR/qbx/qbitx.conf"
-            chmod 600 "$SPIRALPOOL_DIR/qbx/qbitx.conf"
-
-            cat > /etc/systemd/system/qbitxd.service << EOF
-[Unit]
-Description=Q-BitX Daemon (Post-Quantum Bitcoin Fork, SHA-256d)
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=600
-StartLimitBurst=5
-
-[Service]
-Type=forking
-User=$POOL_USER
-Group=$POOL_USER
-# Daemon may SIGABRT on shutdown — fix data dir ownership before start
-ExecStartPre=/bin/chown -R $POOL_USER:$POOL_USER $SPIRALPOOL_DIR/qbx
-ExecStart=/usr/local/bin/qbitx -daemon -conf=$SPIRALPOOL_DIR/qbx/qbitx.conf -datadir=$SPIRALPOOL_DIR/qbx -pid=$SPIRALPOOL_DIR/qbx/qbitxd.pid
-ExecStop=/usr/local/bin/qbitx-cli -conf=$SPIRALPOOL_DIR/qbx/qbitx.conf -datadir=$SPIRALPOOL_DIR/qbx stop
-PIDFile=$SPIRALPOOL_DIR/qbx/qbitxd.pid
-Restart=always
-RestartSec=30
-TimeoutStartSec=infinity
-TimeoutStopSec=600
-
-[Install]
-WantedBy=multi-user.target
-EOF
-            ufw allow 8345/tcp comment "Q-BitX P2P" 2>/dev/null || true
-            ufw allow 20335/tcp comment "QBX Stratum V1" 2>/dev/null || true
-            ufw allow 20336/tcp comment "QBX Stratum V2" 2>/dev/null || true
-            ;;
         XEC)
             mkdir -p "$SPIRALPOOL_DIR/xec"
             chown -R "$POOL_USER:$POOL_USER" "$SPIRALPOOL_DIR/xec"
@@ -5390,7 +5223,6 @@ start_node() {
         SYS) service="syscoind" ;;
         XMY) service="myriadcoind" ;;
         FBTC) service="fractald" ;;
-        QBX) service="qbitxd" ;;
         XEC) service="ecashd" ;;
         DGB-SCRYPT) service="digibyted" ;;  # Uses same node as DGB
     esac
@@ -5468,10 +5300,6 @@ stop_node() {
             service="fractald"
             service_file="/etc/systemd/system/fractald.service"
             ;;
-        QBX)
-            service="qbitxd"
-            service_file="/etc/systemd/system/qbitxd.service"
-            ;;
         XEC)
             service="ecashd"
             service_file="/etc/systemd/system/ecashd.service"
@@ -5526,7 +5354,6 @@ stop_node() {
         SYS)        ufw delete allow 8369/tcp 2>/dev/null || true ;;
         XMY)        ufw delete allow 10888/tcp 2>/dev/null || true ;;
         FBTC)       ufw delete allow 8341/tcp 2>/dev/null || true ;;
-        QBX)        ufw delete allow 8345/tcp 2>/dev/null || true ;;
         XEC)        ufw delete allow 8343/tcp 2>/dev/null || true ;;
         DGB-SCRYPT) ;; # Uses same node as DGB — no daemon port to close
     esac
@@ -5545,7 +5372,7 @@ verify_services() {
     local issues_found=0
 
     # Check each coin
-    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC QBX; do
+    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC; do
         local service=""
         local service_file=""
         local should_be_running=false
@@ -5606,10 +5433,6 @@ verify_services() {
             FBTC)
                 service="fractald"
                 service_file="/etc/systemd/system/fractald.service"
-                ;;
-            QBX)
-                service="qbitxd"
-                service_file="/etc/systemd/system/qbitxd.service"
                 ;;
             XEC)
                 service="ecashd"
@@ -5726,12 +5549,11 @@ verify_firewall() {
     COIN_PORTS[SYS]="8369 15335 15336"
     COIN_PORTS[XMY]="10888 17335 17336"
     COIN_PORTS[FBTC]="8341 18335 18336"
-    COIN_PORTS[QBX]="8345 20335 20336"
     COIN_PORTS[XEC]="8343 18338 18339 18340"
 
     local issues_found=0
 
-    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC QBX; do
+    for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC; do
         local should_be_open=false
         for current in "${CURRENT_COINS[@]}"; do
             if [ "$coin" = "$current" ]; then
@@ -5771,7 +5593,7 @@ verify_firewall() {
         fi
         if [ "$do_fix" = true ]; then
             # Close all coin ports first
-            for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC QBX; do
+            for coin in DGB BTC BCH BCH2 BC2 BTCS XEC LTC DOGE DGB-SCRYPT PEP CAT NMC SYS XMY FBTC; do
                 local ports="${COIN_PORTS[$coin]}"
                 for port in $ports; do
                     ufw delete allow $port/tcp 2>/dev/null || true
@@ -5849,7 +5671,7 @@ generate_config() {
     local config_tmp="${CONFIG_FILE}.tmp.$$"
     trap "rm -f '${CONFIG_FILE}.tmp.$$'" EXIT
     cat > "$config_tmp" << EOF
-# Spiral Pool v2.5.0 Configuration
+# Spiral Pool v2.5.3 Configuration
 # Generated by pool-mode.sh on $(date)
 # Mode: $([ ${#coins[@]} -eq 1 ] && echo "Solo" || echo "Multi-Coin")
 # Coins: ${coins[*]}
@@ -6165,7 +5987,7 @@ switch_to_solo() {
     local coin=$1
 
     if ! validate_coin "$coin"; then
-        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, QBX, XEC${NC}"
+        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, XEC${NC}"
         exit 1
     fi
 
@@ -6215,7 +6037,7 @@ switch_to_solo() {
     fi
 
     # Stop other nodes (includes all SHA-256d and Scrypt coins)
-    for other in DGB BTC BCH BCH2 BC2 BTCS NMC SYS XMY FBTC QBX LTC DOGE DGB-SCRYPT PEP CAT XEC; do
+    for other in DGB BTC BCH BCH2 BC2 BTCS NMC SYS XMY FBTC LTC DOGE DGB-SCRYPT PEP CAT XEC; do
         if [ "$other" != "$coin" ]; then
             stop_node "$other"
         fi
@@ -6245,7 +6067,7 @@ switch_to_multi() {
     # Validate all coins
     for coin in "${coins[@]}"; do
         if ! validate_coin "$coin"; then
-            echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, QBX, XEC${NC}"
+            echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, XEC${NC}"
             exit 1
         fi
     done
@@ -6318,7 +6140,7 @@ switch_to_multi() {
     done
 
     # Stop nodes not in the list (includes all SHA-256d and Scrypt coins)
-    for other in DGB BTC BCH BCH2 BC2 BTCS NMC SYS XMY FBTC QBX LTC DOGE DGB-SCRYPT PEP CAT XEC; do
+    for other in DGB BTC BCH BCH2 BC2 BTCS NMC SYS XMY FBTC LTC DOGE DGB-SCRYPT PEP CAT XEC; do
         local in_list=false
         for coin in "${coins[@]}"; do
             if [ "$other" = "$coin" ]; then
@@ -6408,7 +6230,7 @@ add_coin() {
     local coin=$1
 
     if ! validate_coin "$coin"; then
-        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, QBX, XEC${NC}"
+        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, XEC${NC}"
         exit 1
     fi
 
@@ -6579,7 +6401,6 @@ elif 'pool' in config:
         'litecoin': 'LTC', 'dogecoin': 'DOGE', 'pepecoin': 'PEP',
         'catcoin': 'CAT', 'namecoin': 'NMC', 'syscoin': 'SYS',
         'myriadcoin': 'XMY', 'fractalbitcoin': 'FBTC', 'fractal': 'FBTC',
-        'qbitx': 'QBX', 'q-bitx': 'QBX',
     }
     _v1_raw_lower = v1_pool.get('coin', 'DGB').lower()
     _v1_raw_stripped = _v1_raw_lower.replace(' ', '').replace('-', '')
@@ -6722,7 +6543,7 @@ config['version'] = 2
 
 # If multi_port is enabled and the new coin is SHA-256d, add it to the rotation schedule.
 # add_coin() only preserved multi_port from backup — it never added the incoming coin.
-_SHA256D = {'BTC','BCH','BCH2','BC2','BTCS','DGB','NMC','SYS','XMY','FBTC','QBX'}
+_SHA256D = {'BTC','BCH','BCH2','BC2','BTCS','DGB','NMC','SYS','XMY','FBTC'}
 mp = config.get('multi_port')
 if mp and isinstance(mp, dict) and mp.get('enabled') and coin_symbol in _SHA256D:
     mp_coins = mp.setdefault('coins', {})
@@ -6834,7 +6655,6 @@ PYEOF
             SYS)  svc="syscoind" ;;
             XMY)  svc="myriadcoind" ;;
             FBTC) svc="fractald" ;;
-            QBX)  svc="qbitxd" ;;
             XEC)  svc="ecashd" ;;
         esac
         [ -z "$svc" ] && continue
@@ -6877,7 +6697,7 @@ remove_coin() {
     local coin=$1
 
     if ! validate_coin "$coin"; then
-        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, QBX, XEC${NC}"
+        echo -e "${RED}Error: Invalid coin '$coin'. Supported: DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, DGB-SCRYPT, PEP, CAT, NMC, SYS, XMY, FBTC, XEC${NC}"
         exit 1
     fi
 
@@ -6993,11 +6813,6 @@ remove_coin() {
             service="fractald"
             service_file="/etc/systemd/system/fractald.service"
             data_dir="$SPIRALPOOL_DIR/fbtc"
-            ;;
-        QBX)
-            service="qbitxd"
-            service_file="/etc/systemd/system/qbitxd.service"
-            data_dir="$SPIRALPOOL_DIR/qbx"
             ;;
         XEC)
             service="ecashd"
@@ -7297,19 +7112,18 @@ interactive_menu() {
             echo "  [5]  Bitcoin II (BC2)"
             echo "  [6]  Bitcoin Silver (BTCS)"
             echo "  [7]  eCash (XEC)"
-            echo "  [8]  ⚛️  Q-BitX (QBX)"
             echo "  === SHA-256d AuxPoW (merge-mineable) ==="
-            echo "  [9]  Namecoin (NMC)"
-            echo "  [10] Syscoin (SYS) — merge-mining only"
-            echo "  [11] Myriadcoin (XMY)"
-            echo "  [12] Fractal Bitcoin (FBTC)"
+            echo "  [8]  Namecoin (NMC)"
+            echo "  [9] Syscoin (SYS) — merge-mining only"
+            echo "  [10] Myriadcoin (XMY)"
+            echo "  [11] Fractal Bitcoin (FBTC)"
             echo "  === Scrypt (ASIC) ==="
-            echo "  [13] Litecoin (LTC)"
-            echo "  [14] Dogecoin (DOGE)"
-            echo "  [15] DigiByte-Scrypt (DGB-SCRYPT)"
-            echo "  [16] PepeCoin (PEP)"
-            echo "  [17] Catcoin (CAT)"
-            read -p "Select coin (1-17): " coin_choice
+            echo "  [12] Litecoin (LTC)"
+            echo "  [13] Dogecoin (DOGE)"
+            echo "  [14] DigiByte-Scrypt (DGB-SCRYPT)"
+            echo "  [15] PepeCoin (PEP)"
+            echo "  [16] Catcoin (CAT)"
+            read -p "Select coin (1-16): " coin_choice
             case $coin_choice in
                 1) switch_to_solo "DGB" ;;
                 2) switch_to_solo "BTC" ;;
@@ -7318,16 +7132,15 @@ interactive_menu() {
                 5) switch_to_solo "BC2" ;;
                 6) switch_to_solo "BTCS" ;;
                 7) switch_to_solo "XEC" ;;
-                8) switch_to_solo "QBX" ;;
-                9) switch_to_solo "NMC" ;;
-                10) echo -e "${YELLOW}⚠ SYS cannot solo mine (requires CbTx/quorum commitment). Use multi-coin mode with BTC + SYS.${NC}" ;;
-                11) switch_to_solo "XMY" ;;
-                12) switch_to_solo "FBTC" ;;
-                13) switch_to_solo "LTC" ;;
-                14) switch_to_solo "DOGE" ;;
-                15) switch_to_solo "DGB-SCRYPT" ;;
-                16) switch_to_solo "PEP" ;;
-                17) switch_to_solo "CAT" ;;
+                8) switch_to_solo "NMC" ;;
+                9) echo -e "${YELLOW}⚠ SYS cannot solo mine (requires CbTx/quorum commitment). Use multi-coin mode with BTC + SYS.${NC}" ;;
+                10) switch_to_solo "XMY" ;;
+                11) switch_to_solo "FBTC" ;;
+                12) switch_to_solo "LTC" ;;
+                13) switch_to_solo "DOGE" ;;
+                14) switch_to_solo "DGB-SCRYPT" ;;
+                15) switch_to_solo "PEP" ;;
+                16) switch_to_solo "CAT" ;;
                 *) echo "Invalid selection" ;;
             esac
             ;;
@@ -7340,9 +7153,9 @@ interactive_menu() {
             echo "  [3]  DGB + BC2"
             echo "  [4]  BTC + BCH"
             echo "  [5]  BTC + BC2"
-            echo "  [6]  All SHA-256d (DGB + BTC + BCH + BCH2 + BC2 + BTCS + QBX)"
+            echo "  [6]  All SHA-256d (DGB + BTC + BCH + BCH2 + BC2 + BTCS + XEC)"
             echo "  === SHA-256d + AuxPoW ==="
-            echo "  [7]  All SHA-256d + Aux (DGB + BTC + BCH + BCH2 + BC2 + BTCS + QBX + NMC + SYS + XMY + FBTC)"
+            echo "  [7]  All SHA-256d + Aux (DGB + BTC + BCH + BCH2 + BC2 + BTCS + XEC + NMC + SYS + XMY + FBTC)"
             echo "  === Scrypt Combinations ==="
             echo "  [8]  LTC + DOGE"
             echo "  [9]  DGB + DGB-SCRYPT (SHA256 + Scrypt on same node)"
@@ -7352,7 +7165,7 @@ interactive_menu() {
             echo "  [12] BTC + LTC"
             echo "  [13] BCH + BCH2"
             echo "  [14] BC2 + BTCS"
-            echo "  [15] All 17 coins"
+            echo "  [15] All 16 coins"
             read -p "Select combination (1-15): " coin_choice
             case $coin_choice in
                 1) switch_to_multi "DGB,BTC" ;;
@@ -7360,8 +7173,8 @@ interactive_menu() {
                 3) switch_to_multi "DGB,BC2" ;;
                 4) switch_to_multi "BTC,BCH" ;;
                 5) switch_to_multi "BTC,BC2" ;;
-                6) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC,QBX" ;;
-                7) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC,QBX,NMC,SYS,XMY,FBTC" ;;
+                6) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC" ;;
+                7) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC,NMC,SYS,XMY,FBTC" ;;
                 8) switch_to_multi "LTC,DOGE" ;;
                 9) switch_to_multi "DGB,DGB-SCRYPT" ;;
                 10) switch_to_multi "LTC,DOGE,DGB-SCRYPT,PEP,CAT" ;;
@@ -7369,7 +7182,7 @@ interactive_menu() {
                 12) switch_to_multi "BTC,LTC" ;;
                 13) switch_to_multi "BCH,BCH2" ;;
                 14) switch_to_multi "BC2,BTCS" ;;
-                15) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC,QBX,NMC,SYS,XMY,FBTC,LTC,DOGE,DGB-SCRYPT,PEP,CAT" ;;
+                15) switch_to_multi "DGB,BTC,BCH,BCH2,BC2,BTCS,XEC,NMC,SYS,XMY,FBTC,LTC,DOGE,DGB-SCRYPT,PEP,CAT" ;;
                 *) echo "Invalid selection" ;;
             esac
             ;;
@@ -7384,19 +7197,18 @@ interactive_menu() {
             echo "  [5]  Bitcoin II (BC2)"
             echo "  [6]  Bitcoin Silver (BTCS)"
             echo "  [7]  eCash (XEC)"
-            echo "  [8]  Q-BitX (QBX)"
             echo "  === SHA-256d AuxPoW (merge-mineable) ==="
-            echo "  [9]  Namecoin (NMC)"
-            echo "  [10] Syscoin (SYS) — merge-mining only"
-            echo "  [11] Myriadcoin (XMY)"
-            echo "  [12] Fractal Bitcoin (FBTC)"
+            echo "  [8]  Namecoin (NMC)"
+            echo "  [9] Syscoin (SYS) — merge-mining only"
+            echo "  [10] Myriadcoin (XMY)"
+            echo "  [11] Fractal Bitcoin (FBTC)"
             echo "  === Scrypt (ASIC) ==="
-            echo "  [13] Litecoin (LTC)"
-            echo "  [14] Dogecoin (DOGE)"
-            echo "  [15] DigiByte-Scrypt (DGB-SCRYPT)"
-            echo "  [16] PepeCoin (PEP)"
-            echo "  [17] Catcoin (CAT)"
-            read -p "Select coin (1-17): " coin_choice
+            echo "  [12] Litecoin (LTC)"
+            echo "  [13] Dogecoin (DOGE)"
+            echo "  [14] DigiByte-Scrypt (DGB-SCRYPT)"
+            echo "  [15] PepeCoin (PEP)"
+            echo "  [16] Catcoin (CAT)"
+            read -p "Select coin (1-16): " coin_choice
             case $coin_choice in
                 1) add_coin "DGB" ;;
                 2) add_coin "BTC" ;;
@@ -7405,16 +7217,15 @@ interactive_menu() {
                 5) add_coin "BC2" ;;
                 6) add_coin "BTCS" ;;
                 7) add_coin "XEC" ;;
-                8) add_coin "QBX" ;;
-                9) add_coin "NMC" ;;
-                10) add_coin "SYS" ;;
-                11) add_coin "XMY" ;;
-                12) add_coin "FBTC" ;;
-                13) add_coin "LTC" ;;
-                14) add_coin "DOGE" ;;
-                15) add_coin "DGB-SCRYPT" ;;
-                16) add_coin "PEP" ;;
-                17) add_coin "CAT" ;;
+                8) add_coin "NMC" ;;
+                9) add_coin "SYS" ;;
+                10) add_coin "XMY" ;;
+                11) add_coin "FBTC" ;;
+                12) add_coin "LTC" ;;
+                13) add_coin "DOGE" ;;
+                14) add_coin "DGB-SCRYPT" ;;
+                15) add_coin "PEP" ;;
+                16) add_coin "CAT" ;;
                 *) echo "Invalid selection" ;;
             esac
             ;;
@@ -7429,19 +7240,18 @@ interactive_menu() {
             echo "  [5]  Bitcoin II (BC2)"
             echo "  [6]  Bitcoin Silver (BTCS)"
             echo "  [7]  eCash (XEC)"
-            echo "  [8]  Q-BitX (QBX)"
             echo "  === SHA-256d AuxPoW (merge-mineable) ==="
-            echo "  [9]  Namecoin (NMC)"
-            echo "  [10] Syscoin (SYS) — merge-mining only"
-            echo "  [11] Myriadcoin (XMY)"
-            echo "  [12] Fractal Bitcoin (FBTC)"
+            echo "  [8]  Namecoin (NMC)"
+            echo "  [9] Syscoin (SYS) — merge-mining only"
+            echo "  [10] Myriadcoin (XMY)"
+            echo "  [11] Fractal Bitcoin (FBTC)"
             echo "  === Scrypt (ASIC) ==="
-            echo "  [13] Litecoin (LTC)"
-            echo "  [14] Dogecoin (DOGE)"
-            echo "  [15] DigiByte-Scrypt (DGB-SCRYPT)"
-            echo "  [16] PepeCoin (PEP)"
-            echo "  [17] Catcoin (CAT)"
-            read -p "Select coin (1-17): " coin_choice
+            echo "  [12] Litecoin (LTC)"
+            echo "  [13] Dogecoin (DOGE)"
+            echo "  [14] DigiByte-Scrypt (DGB-SCRYPT)"
+            echo "  [15] PepeCoin (PEP)"
+            echo "  [16] Catcoin (CAT)"
+            read -p "Select coin (1-16): " coin_choice
             case $coin_choice in
                 1) remove_coin "DGB" ;;
                 2) remove_coin "BTC" ;;
@@ -7450,16 +7260,15 @@ interactive_menu() {
                 5) remove_coin "BC2" ;;
                 6) remove_coin "BTCS" ;;
                 7) remove_coin "XEC" ;;
-                8) remove_coin "QBX" ;;
-                9) remove_coin "NMC" ;;
-                10) remove_coin "SYS" ;;
-                11) remove_coin "XMY" ;;
-                12) remove_coin "FBTC" ;;
-                13) remove_coin "LTC" ;;
-                14) remove_coin "DOGE" ;;
-                15) remove_coin "DGB-SCRYPT" ;;
-                16) remove_coin "PEP" ;;
-                17) remove_coin "CAT" ;;
+                8) remove_coin "NMC" ;;
+                9) remove_coin "SYS" ;;
+                10) remove_coin "XMY" ;;
+                11) remove_coin "FBTC" ;;
+                12) remove_coin "LTC" ;;
+                13) remove_coin "DOGE" ;;
+                14) remove_coin "DGB-SCRYPT" ;;
+                15) remove_coin "PEP" ;;
+                16) remove_coin "CAT" ;;
                 *) echo "Invalid selection" ;;
             esac
             ;;
@@ -7747,7 +7556,6 @@ _v1_coin_to_symbol = {
     'bitcoinii': 'BC2', 'litecoin': 'LTC', 'dogecoin': 'DOGE',
     'pepecoin': 'PEP', 'catcoin': 'CAT', 'namecoin': 'NMC',
     'syscoin': 'SYS', 'myriadcoin': 'XMY', 'fractalbitcoin': 'FBTC',
-    'qbitx': 'QBX',
 }
 
 # Fix per-coin entries (daemon → nodes, missing pool_id, flat stratum port)

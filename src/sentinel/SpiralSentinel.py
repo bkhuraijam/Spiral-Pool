@@ -3,8 +3,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Spiral Pool Contributors
 """
 ╔═════════════════════════════════════════════════════════════════════════════╗
-║  Spiral Sentinel v2.5.0 - PHI HASH REACTOR EDITION                            ║
-║  Autonomous Solo Mining Monitor (17 coins: SHA-256d + Scrypt)               ║
+║  Spiral Sentinel v2.5.3 - PHI HASH REACTOR EDITION                            ║
+║  Autonomous Solo Mining Monitor (16 coins: SHA-256d + Scrypt)               ║
 ║  Self-Healing + Share Monitoring (No Pool Software Dependency)              ║
 ╠═════════════════════════════════════════════════════════════════════════════╣
 ║  FEATURES:                                                                  ║
@@ -28,7 +28,7 @@
 ║  • Whatsminer API: whatsminer.com                                           ║
 ╚═════════════════════════════════════════════════════════════════════════════╝
 """
-__version__ = "2.5.0"
+__version__ = "2.5.3"
 __codename__ = "PHI_HASH_REACTOR"
 
 import copy, json, socket, sys, time, os, urllib.request, urllib.error, ssl, random, ipaddress, re, threading, http.server
@@ -392,7 +392,7 @@ def _build_rpc_auth_cache(config_path):
             continue
         # Extract exact port value
         val = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-        # Strip inline comments (e.g., "8344  # QBX RPC port")
+        # Strip inline comments (e.g., "8370  # SYS RPC port")
         val = val.split("#")[0].strip()
         if not val.isdigit():
             i += 1
@@ -1122,7 +1122,7 @@ DEFAULT_CONFIG = {
     "pool_no_shares_threshold_min": 30,        # Alert if no pool shares for this long
     "push_device_hints": True,                 # Push device info to pool for difficulty hints
     # Stratum URL mismatch detection — alerts if a miner points at a different pool
-    "pool_url": "",                              # Expected stratum URL (e.g. "stratum+tcp://192.168.1.21:20335")
+    "pool_url": "",                              # Expected stratum URL (e.g. "stratum+tcp://192.168.1.21:3333")
     "fallback_pool_urls": [],                    # Additional valid pool URLs (HA failover, VIP, etc.)
     # Firmware auto-detection — probe BraiinsOS/Vnish on port 80 when CGMiner fails
     "firmware_auto_detect": True,                 # Try BraiinsOS then Vnish when antminer CGMiner probe fails
@@ -1675,8 +1675,21 @@ def load_config():
         if stratum_config_path.exists():
             try:
                 with open(stratum_config_path) as f:
-                    for line in f:
-                        line = line.strip()
+                    # Track the current top-level YAML section so we can disambiguate
+                    # generic keys. The V1 config schema stores the metrics bearer token
+                    # as `authToken:` nested under `metrics:`, while V2 uses the flat
+                    # `metrics_auth_token:`. We only honour the bare `authToken:` when it
+                    # appears inside the `metrics:` block, so we never grab an unrelated
+                    # authToken from another section.
+                    _current_section = None
+                    for raw_line in f:
+                        # An unindented (column-0) line starts a new top-level key.
+                        # A mapping header (`name:`) sets the section; any other
+                        # top-level key clears the section context.
+                        if raw_line[:1] not in ("", " ", "\t", "#", "\n", "\r"):
+                            _header = raw_line.split("#", 1)[0].strip()
+                            _current_section = _header[:-1].strip() if _header.endswith(":") else None
+                        line = raw_line.strip()
                         # Admin API key — V1 camelCase or V2 snake_case
                         if _need_api_key and line.startswith("adminApiKey:"):
                             key = line.split(":", 1)[1].strip().strip('"').strip("'")
@@ -1690,12 +1703,20 @@ def load_config():
                                 config["pool_admin_api_key"] = key
                                 logger.info("Auto-discovered pool_admin_api_key from stratum config.yaml")
                                 _need_api_key = False
-                        # Prometheus metrics bearer token
+                        # Prometheus metrics bearer token — V2 flat `metrics_auth_token:`
                         elif _need_metrics_token and line.startswith("metrics_auth_token:"):
                             tok = line.split(":", 1)[1].strip().strip('"').strip("'")
                             if tok and len(tok) >= 16:
                                 config["metrics_token"] = tok
                                 logger.info("Auto-discovered metrics_token from stratum config.yaml")
+                                _need_metrics_token = False
+                        # Prometheus metrics bearer token — V1 `metrics.authToken`
+                        elif (_need_metrics_token and _current_section == "metrics"
+                              and line.startswith("authToken:")):
+                            tok = line.split(":", 1)[1].strip().strip('"').strip("'")
+                            if tok and len(tok) >= 16:
+                                config["metrics_token"] = tok
+                                logger.info("Auto-discovered metrics_token from stratum config.yaml (metrics.authToken)")
                                 _need_metrics_token = False
                         if not _need_api_key and not _need_metrics_token:
                             break
@@ -1823,7 +1844,7 @@ def get_enabled_coins():
         enabled_coins = [c for c in CONFIGURED_COINS if c.get("enabled", False)]
         # Auto-sync: if pool API has coins that are missing or disabled in config.json,
         # add them automatically. This prevents coins added after initial sentinel setup
-        # from being silently ignored (e.g., QBX added to stratum but never enabled in
+        # from being silently ignored (e.g., a coin added to stratum but never enabled in
         # sentinel config.json).
         if AUTO_DETECTED_COIN is None:
             AUTO_DETECTED_COIN = auto_detect_pool_coin()
@@ -1854,7 +1875,6 @@ def get_enabled_coins():
         "LTC": {"stratum": 7333, "stratum_v2": 7334, "rpc": 9332, "zmq": 28933, "pool_id": "ltc_scrypt_1"},
         "NMC": {"stratum": 14335, "stratum_v2": 14336, "rpc": 8336, "zmq": 28336, "pool_id": "nmc_sha256_1"},
         "PEP": {"stratum": 10335, "stratum_v2": 10336, "rpc": 33873, "zmq": 28873, "pool_id": "pep_scrypt_1"},
-        "QBX": {"stratum": 20335, "stratum_v2": 20336, "rpc": 8344, "zmq": None, "pool_id": "qbx_sha256_1"},  # No ZMQ — binary compiled without it
         "SYS": {"stratum": 15335, "stratum_v2": 15336, "rpc": 8370, "zmq": 28370, "pool_id": "sys_sha256_1"},  # Merge-mining only (BTC parent) — cannot solo mine
         "XEC": {"stratum": 18338, "stratum_v2": 18339, "rpc": 9004, "zmq": 28335, "pool_id": "xec_sha256_1"},
         "XMY": {"stratum": 17335, "stratum_v2": 17336, "rpc": 10889, "zmq": 28889, "pool_id": "xmy_sha256_1"},
@@ -1886,7 +1906,7 @@ def get_enabled_coins():
                 ("bc2", "BC2"), ("bitcoinii", "BC2"),
                 ("dgb", "DGB"),
                 ("ltc", "LTC"), ("doge", "DOGE"), ("pep", "PEP"), ("cat", "CAT"),
-                ("nmc", "NMC"), ("sys", "SYS"), ("xmy", "XMY"), ("qbx", "QBX"),
+                ("nmc", "NMC"), ("sys", "SYS"), ("xmy", "XMY"),
             ]
             symbol = ""
             for prefix, coin_sym in _pool_id_prefixes:
@@ -1951,7 +1971,6 @@ def get_coin_emoji(symbol):
         "SYS": "⚙️",  # Syscoin - gear (platform)
         "XMY": "🌀",  # Myriad - spiral (multi-algo)
         "FBTC": "🔶",  # Fractal Bitcoin - orange diamond
-        "QBX": "⚛️",   # Q-BitX - atom (post-quantum)
         "XEC": "💚",  # eCash - green (eCash brand colour)
         # Scrypt coins
         "LTC": "🥈",  # Litecoin - silver
@@ -1978,7 +1997,6 @@ def get_coin_name(symbol):
         "SYS": "Syscoin",
         "XMY": "Myriad",
         "FBTC": "Fractal Bitcoin",
-        "QBX": "Q-BitX",
         "XEC": "eCash",
         # Scrypt coins
         "LTC": "Litecoin",
@@ -2205,8 +2223,7 @@ def discover_active_aux_pools(parent_symbol):
             "PEPECOIN": "PEP", "CATCOIN": "CAT",
             "NAMECOIN": "NMC", "SYSCOIN": "SYS", "MYRIADCOIN": "XMY",
             "MYRIAD": "XMY", "FRACTALBITCOIN": "FBTC", "FRACTAL": "FBTC",
-            "QBITX": "QBX", "Q-BITX": "QBX",
-            "ECASH": "XEC", "BITCOIN-ABC": "XEC",
+                        "ECASH": "XEC", "BITCOIN-ABC": "XEC",
         }
 
         # Build symbol -> pool_id from API response
@@ -2445,7 +2462,6 @@ def fetch_pool_stats_by_symbol(symbol):
     # Known pool_id patterns for each coin
     POOL_ID_PATTERNS = {
         "DGB": "dgb_sha256",
-        "QBX": "qbx_mainnet",
         "XEC": "xec_sha256",
         "BTC": "btc_sha256",
         "BCH": "bch_sha256",
@@ -2506,7 +2522,7 @@ def check_coin_node_synced(coin):
         progress = r.get("verificationprogress", 0)
         blocks = r.get("blocks", 0)
         headers = r.get("headers", 0)
-        # Some daemons (e.g. QBX) report near-zero verificationprogress
+        # Some daemons (e.g. BC2) report near-zero verificationprogress
         # even when fully synced. Fall back to blocks>=headers.
         if progress >= 0.9999:
             return True
@@ -2872,8 +2888,7 @@ def _extract_coin_from_pool(pool):
         "syscoin": "SYS", "sys": "SYS",
         "myriad": "XMY", "myriadcoin": "XMY", "xmy": "XMY",
         "fractalbitcoin": "FBTC", "fractal": "FBTC", "fbtc": "FBTC",
-        "qbitx": "QBX", "q-bitx": "QBX", "qbx": "QBX",
-        "ecash": "XEC", "bitcoin-abc": "XEC", "xec": "XEC",
+                "ecash": "XEC", "bitcoin-abc": "XEC", "xec": "XEC",
         "litecoin": "LTC", "ltc": "LTC",
         "dogecoin": "DOGE", "doge": "DOGE",
         "digibyte-scrypt": "DGB-SCRYPT", "dgb-scrypt": "DGB-SCRYPT",
@@ -2896,7 +2911,6 @@ def _extract_coin_from_pool(pool):
         "XMY": {"stratum": 17335, "stratum_v2": 17336, "rpc": 10889, "zmq": 28889},
         "FBTC": {"stratum": 18335, "stratum_v2": 18336, "rpc": 8340, "zmq": 28340},
         "XEC": {"stratum": 18338, "stratum_v2": 18339, "rpc": 9004, "zmq": 28335},
-        "QBX": {"stratum": 20335, "stratum_v2": 20336, "rpc": 8344, "zmq": None},  # No ZMQ — binary compiled without it
         "LTC": {"stratum": 7333, "stratum_v2": 7334, "rpc": 9332, "zmq": 28933},
         "DOGE": {"stratum": 8335, "stratum_v2": 8337, "rpc": 22555, "zmq": 28555},
         "DGB-SCRYPT": {"stratum": 3336, "stratum_v2": 3337, "rpc": 14022, "zmq": 28532},
@@ -3007,10 +3021,7 @@ def auto_detect_pool_coin():
             "fractalbitcoin": "FBTC",
             "fractal": "FBTC",
             "fbtc": "FBTC",
-            "qbitx": "QBX",
-            "q-bitx": "QBX",
-            "qbx": "QBX",
-            # Scrypt coins
+                                                # Scrypt coins
             "litecoin": "LTC",
             "ltc": "LTC",
             "dogecoin": "DOGE",
@@ -3157,7 +3168,7 @@ def create_coin_change_embed(old_coin, new_coin, new_config=None):
             "stratum_v2": new_config.get("stratum_v2_port", "unknown")
         }
     else:
-        # Fallback defaults for all 17 supported coins (only used if no config available)
+        # Fallback defaults for all 16 supported coins (only used if no config available)
         default_ports = {
             # SHA-256d coins
             "DGB": {"stratum": 3333, "stratum_v2": 3334},
@@ -3167,8 +3178,7 @@ def create_coin_change_embed(old_coin, new_coin, new_config=None):
             "BC2": {"stratum": 6333, "stratum_v2": 6334},
             "BTCS": {"stratum": 11335, "stratum_v2": 11336},
             "XEC": {"stratum": 18338, "stratum_v2": 18339},
-            "QBX": {"stratum": 20335, "stratum_v2": 20336},
-            # SHA-256d merge-mineable coins
+                        # SHA-256d merge-mineable coins
             "NMC": {"stratum": 14335, "stratum_v2": 14336},
             "SYS": {"stratum": 15335, "stratum_v2": 15336},
             "XMY": {"stratum": 17335, "stratum_v2": 17336},
@@ -3335,8 +3345,6 @@ def detect_pool_mode():
                 "namecoin": "NMC", "nmc": "NMC",
                 "syscoin": "SYS", "sys": "SYS",
                 "myriad": "XMY", "myriadcoin": "XMY", "xmy": "XMY",
-                # Post-quantum SHA-256d
-                "qbitx": "QBX", "q-bitx": "QBX", "qbx": "QBX",
             }
             for pool in pools:
                 coin_info = pool.get("coin", {})
@@ -3640,6 +3648,11 @@ def handle_mode_changes(change_info, state):
 COIN_HEALTH_CHECK_INTERVAL = 300  # Check coin health every 5 minutes
 _last_coin_health_check = 0
 _coin_health_state = {}  # Track per-coin health status
+# Require a coin's node to fail this many consecutive health checks before alerting node-down,
+# so a single transient pool-API timeout doesn't fire a false red alert (~2 checks = ~10 min).
+COIN_NODE_DOWN_CONFIRM = CONFIG.get("coin_node_down_confirm_checks", 2)
+_coin_node_down_streak = {}    # symbol -> consecutive failing health checks
+_coin_node_down_alerted = {}   # symbol -> True once a node-down alert has been sent (gates recovery)
 
 
 def check_coin_health(coin_symbol, coin_config=None):
@@ -3704,13 +3717,16 @@ def check_all_coins_health():
     """Check health of all enabled coins.
 
     Returns:
-        dict: {coin_symbol: health_status, ...}
+        dict: {coin_symbol: health_status, ...} on a fresh check, or None when the result is
+        still cached (not yet time to re-check). Returning None — rather than a cached copy —
+        lets the caller skip re-processing stale results every monitor loop, which would
+        otherwise inflate the per-coin node-down confirmation streak on a single real outage.
     """
     global _last_coin_health_check
     current_time = time.time()
 
     if current_time - _last_coin_health_check < COIN_HEALTH_CHECK_INTERVAL:
-        return _coin_health_state.copy()
+        return None
 
     _last_coin_health_check = current_time
     results = {}
@@ -3797,32 +3813,49 @@ def handle_coin_health_alerts(health_results, state):
 
     Tracks state to avoid duplicate alerts.
     """
-    global _coin_health_state
+    global _coin_health_state, _coin_node_down_streak, _coin_node_down_alerted
 
     for symbol, health in health_results.items():
         prev_health = _coin_health_state.get(symbol, {})
         issues = health.get("issues", [])
+        issue_types = [i.get("type") for i in issues]
+        prev_issues = [i.get("type") for i in prev_health.get("issues", [])]
 
-        for issue in issues:
-            issue_type = issue.get("type")
+        # Count consecutive failing checks (node_down or node_error). A single transient
+        # pool-API timeout must not fire a red node-down alert — require sustained failure.
+        node_failing = ("node_down" in issue_types) or ("node_error" in issue_types)
+        if node_failing:
+            _coin_node_down_streak[symbol] = _coin_node_down_streak.get(symbol, 0) + 1
+        else:
+            _coin_node_down_streak[symbol] = 0
 
-            # Check if this is a new issue (not previously alerted)
-            prev_issues = [i.get("type") for i in prev_health.get("issues", [])]
+        # Fire node-down once the failure streak reaches the confirmation threshold. Use >= (not
+        # ==) and gate on the not-yet-alerted flag so a node_error→node_down ordering (streak
+        # already past the threshold) still fires, and a cooldown/quiet-hours-suppressed attempt
+        # is retried on the next cycle instead of being lost forever.
+        if ("node_down" in issue_types and _coin_node_down_streak.get(symbol, 0) >= COIN_NODE_DOWN_CONFIRM
+                and not _coin_node_down_alerted.get(symbol)):
+            embed = create_coin_node_down_embed(symbol, get_coin_name(symbol))
+            if send_alert("coin_node_down", embed, state):
+                _coin_node_down_alerted[symbol] = True
 
-            if issue_type == "node_down" and "node_down" not in prev_issues:
-                embed = create_coin_node_down_embed(symbol, get_coin_name(symbol))
-                send_alert("coin_node_down", embed, state)
+        if "sync_behind" in issue_types and "sync_behind" not in prev_issues:
+            for issue in issues:
+                if issue.get("type") == "sync_behind":
+                    blocks_behind = issue.get("blocks_behind", 0)
+                    embed = create_coin_sync_behind_embed(symbol, get_coin_name(symbol), blocks_behind)
+                    send_alert("coin_sync_behind", embed, state)
+                    break
 
-            elif issue_type == "sync_behind" and "sync_behind" not in prev_issues:
-                blocks_behind = issue.get("blocks_behind", 0)
-                embed = create_coin_sync_behind_embed(symbol, get_coin_name(symbol), blocks_behind)
-                send_alert("coin_sync_behind", embed, state)
-
-        # Check for recovery (node came back online)
-        if health.get("node_up") and not prev_health.get("node_up", True):
+        # Recovery — only if we actually alerted a node-down for this coin (avoids a spurious
+        # "recovered" with no preceding "down" after a single transient failure). Clear the flag
+        # only when the recovery actually sends, so a suppressed recovery (quiet hours / non-master)
+        # is retried on the next fresh check instead of being lost.
+        if health.get("node_up") and _coin_node_down_alerted.get(symbol):
             embed = create_coin_node_recovered_embed(symbol, get_coin_name(symbol))
-            send_alert("miner_online", embed, state)  # Reuse miner_online cooldown category
-            logger.info(f"{symbol} node recovered — alert sent")
+            if send_alert("miner_online", embed, state):  # Reuse miner_online cooldown category
+                logger.info(f"{symbol} node recovered — alert sent")
+                _coin_node_down_alerted[symbol] = False
 
     # Update state — merge results to preserve state for coins not in this check
     _coin_health_state.update(health_results)
@@ -3917,7 +3950,7 @@ def check_stuck_syncs(state):
         # Skip coins we can't reach or that are already fully synced
         if blocks is None or progress is None:
             continue
-        # Some daemons (e.g. QBX) report near-zero verificationprogress
+        # Some daemons (e.g. BC2) report near-zero verificationprogress
         # even when fully synced. Fall back to blocks>=headers.
         if progress >= 0.9999 or (headers and headers > 0 and blocks >= headers):
             _sync_progress_history.pop(symbol, None)
@@ -4391,7 +4424,38 @@ _last_ha_vip = None
 _last_ha_state = None
 _last_ha_role = None
 _pending_role_change = None  # {"old_role": str, "new_role": str, "detected_at": float} — awaiting confirmation
+_pending_vip_change = None   # debounce VIP changes the same way as role changes
+_pending_state_change = None # debounce HA state changes the same way as role changes
 HA_VIP_CHECK_INTERVAL = 30  # Check HA/VIP every 30s
+
+
+def _debounce_ha_scalar(pending, baseline, current, now, confirm_secs, label):
+    """Debounce an HA scalar (VIP / state) like role changes are debounced: suppress a value
+    that reverts within confirm_secs, retarget on a third value, and only confirm a change once
+    it has held. Returns (confirmed_pair_or_None, pending, baseline) where confirmed_pair is
+    (old, new) and baseline advances to the confirmed value. Prevents alert storms from the
+    brief VIP/state flapping (running→failover→running) of a normal keepalived election.
+    """
+    if baseline is None:
+        # First observation — seed the baseline so future changes can be detected.
+        # Without this the baseline stays None forever and no change ever registers.
+        return None, None, current
+    if pending is not None:
+        elapsed = now - pending["detected_at"]
+        if current == pending["old"]:
+            logger.info(f"HA {label} blip suppressed: {pending['old']} → {pending['new']} → {current} (self-resolved in {elapsed:.0f}s)")
+            return None, None, baseline
+        if current != pending["new"]:
+            pending["new"] = current
+            pending["detected_at"] = now
+            return None, pending, baseline
+        if elapsed >= confirm_secs:
+            return (pending["old"], current), None, current
+        return None, pending, baseline
+    if current != baseline:  # baseline is non-None here (seeded above)
+        logger.info(f"HA {label} change detected (confirming in {confirm_secs}s): {baseline} → {current}")
+        return None, {"old": baseline, "new": current, "detected_at": now}, baseline
+    return None, None, baseline
 # Seconds a role change must persist before it is confirmed and alerted.
 # Suppresses brief keepalived VRRP election blips (MASTER→BACKUP→MASTER within N seconds).
 # Real failovers hold the new role indefinitely; blips self-resolve within seconds.
@@ -4407,6 +4471,7 @@ def check_ha_vip_changes():
         dict: Change info or None if no changes
     """
     global _last_ha_vip, _last_ha_state, _last_ha_role, _last_ha_vip_check, _pending_role_change
+    global _pending_vip_change, _pending_state_change
 
     current_time = time.time()
     if current_time - _last_ha_vip_check < HA_VIP_CHECK_INTERVAL:
@@ -4427,21 +4492,29 @@ def check_ha_vip_changes():
 
         changes = []
 
-        # Check for VIP change
-        if _last_ha_vip is not None and current_vip != _last_ha_vip:
+        # Check for VIP change — debounced (suppress brief flaps during a normal election).
+        _conf_vip, _pending_vip_change, _last_ha_vip = _debounce_ha_scalar(
+            _pending_vip_change, _last_ha_vip, current_vip, current_time, HA_ROLE_CHANGE_CONFIRM_SECS, "VIP")
+        _vip_old, _vip_new = (_last_ha_vip, current_vip)
+        if _conf_vip:
+            _vip_old, _vip_new = _conf_vip
             changes.append({
                 "type": "vip_change",
-                "old_vip": _last_ha_vip,
-                "new_vip": current_vip,
+                "old_vip": _conf_vip[0],
+                "new_vip": _conf_vip[1],
                 "role": current_role,
             })
 
-        # Check for state change (running -> failover, etc.)
-        if _last_ha_state is not None and current_state != _last_ha_state:
+        # Check for state change (running -> failover, etc.) — debounced the same way.
+        _conf_state, _pending_state_change, _last_ha_state = _debounce_ha_scalar(
+            _pending_state_change, _last_ha_state, current_state, current_time, HA_ROLE_CHANGE_CONFIRM_SECS, "state")
+        _state_old, _state_new = (_last_ha_state, current_state)
+        if _conf_state:
+            _state_old, _state_new = _conf_state
             changes.append({
                 "type": "ha_state_change",
-                "old_state": _last_ha_state,
-                "new_state": current_state,
+                "old_state": _conf_state[0],
+                "new_state": _conf_state[1],
                 "role": current_role,
             })
 
@@ -4500,14 +4573,9 @@ def check_ha_vip_changes():
                 "detected_at": current_time,
             }
 
-        # Update tracked VIP and state immediately; role only advances when not
-        # in pending confirmation (keeps _last_ha_role at pre-change value so the
-        # next cycle can correctly detect a revert).
-        old_vip = _last_ha_vip
-        old_state = _last_ha_state
+        # VIP/state baselines are advanced by _debounce_ha_scalar above (only on confirmation,
+        # so reverts are detectable). Role only advances when not in pending confirmation.
         old_role = _last_ha_role
-        _last_ha_vip = current_vip
-        _last_ha_state = current_state
         if _pending_role_change is None:
             _last_ha_role = current_role
 
@@ -4521,10 +4589,10 @@ def check_ha_vip_changes():
         if changes:
             return {
                 "changes": changes,
-                "old_vip": old_vip,
-                "new_vip": current_vip,
-                "old_state": old_state,
-                "new_state": current_state,
+                "old_vip": _vip_old,
+                "new_vip": _vip_new,
+                "old_state": _state_old,
+                "new_state": _state_new,
                 "old_role": old_role,
                 "role": current_role,
                 "vip": current_vip,
@@ -4699,13 +4767,12 @@ VS_CURRENCIES = ",".join(c["code"] for c in SUPPORTED_CURRENCIES.values())
 CURRENCY_CODES = VS_CURRENCIES.split(",")
 
 # All supported coin symbols (lowercase, for price dict keys)
-SUPPORTED_COIN_SYMBOLS = ["dgb", "btc", "bch", "bch2", "bc2", "btcs", "xec", "qbx", "nmc", "sys", "xmy", "fbtc", "ltc", "doge", "dgb-scrypt", "pep", "cat"]
+SUPPORTED_COIN_SYMBOLS = ["dgb", "btc", "bch", "bch2", "bc2", "btcs", "xec", "nmc", "sys", "xmy", "fbtc", "ltc", "doge", "dgb-scrypt", "pep", "cat"]
 
 # Default block rewards by coin (used as fallback when API data unavailable)
 DEFAULT_BLOCK_REWARDS = {
     # SHA-256d coins
-    "DGB": 277.38, "BTC": 3.125, "BCH": 3.125, "BCH2": 50.0, "BC2": 50.0, "BTCS": 50.0, "XEC": 3125000.0, "QBX": 12.5,
-    # SHA-256d merge-mineable aux chains
+    "DGB": 277.38, "BTC": 3.125, "BCH": 3.125, "BCH2": 50.0, "BC2": 50.0, "BTCS": 50.0, "XEC": 3125000.0,
     "NMC": 6.25, "SYS": 1.25, "XMY": 500.0, "FBTC": 25.0,
     # Scrypt coins
     "LTC": 6.25, "DOGE": 10000, "DGB-SCRYPT": 277.38,
@@ -4723,11 +4790,11 @@ BLOCK_EXPLORER_URLS = {
     "BC2":       None,
     "BTCS":      "https://explorer.bitcoinsilver.top/block/{hash}",
     "DGB":       "https://digiexplorer.info/block/{hash}",
-    "QBX":       None,
-    "NMC":       "https://bchain.info/NMC/block/{hash}",
+        "NMC":       "https://bchain.info/NMC/block/{hash}",
     "SYS":       "https://blockchair.com/syscoin/block/{hash}",
     "XMY":       None,
     "FBTC":      "https://explorer.fractalbitcoin.io/block/{hash}",
+    "XEC":       "https://explorer.e.cash/block/{hash}",
     "LTC":       "https://blockchair.com/litecoin/block/{hash}",
     "DOGE":      "https://blockchair.com/dogecoin/block/{hash}",
     "DGB-SCRYPT": "https://digiexplorer.info/block/{hash}",
@@ -6023,7 +6090,7 @@ def reload_miners():
                 "old_count": old_count,
                 "new_count": new_count,
                 "success": True,
-                "sentinel_version": "V2.5.0-PHI_HASH_REACTOR"
+                "sentinel_version": "V2.5.3-PHI_HASH_REACTOR"
             }
             _atomic_json_save(MINER_RELOAD_ACK, ack_data)
             logger.debug(f"Wrote reload ACK: {MINER_RELOAD_ACK}")
@@ -6042,7 +6109,7 @@ def reload_miners():
                 "timestamp_iso": datetime.now(timezone.utc).isoformat(),
                 "success": False,
                 "error": "Failed to reload miner configuration",
-                "sentinel_version": "V2.5.0-PHI_HASH_REACTOR"
+                "sentinel_version": "V2.5.3-PHI_HASH_REACTOR"
             }
             _atomic_json_save(MINER_RELOAD_ACK, ack_data)
         except (PermissionError, OSError):
@@ -6205,8 +6272,7 @@ COIN_CHECK_INTERVALS = {
     "BTCS": 90,         # Bitcoin Silver: 5min (300s) block time, check every 90s
     "NMC": 120,         # Namecoin: ~10min block time
     "XEC": 120,         # eCash: 10min block time
-    "QBX": 60,          # Q-BitX: 150s block time, check every 60s
-    # Other coins - use default
+        # Other coins - use default
     "PEP": 60,          # Pepecoin
     "CAT": 60,          # Catcoin
 }
@@ -6490,6 +6556,7 @@ COIN_THRESHOLDS = {
     "SYS": {"AMAZING": {"max": 1, "emoji": "🟢"}, "GREAT": {"max": 5, "emoji": "🔵"}, "GOOD": {"max": 10, "emoji": "🟡"}, "NORMAL": {"max": 30, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
     "XMY": {"AMAZING": {"max": 0.5, "emoji": "🟢"}, "GREAT": {"max": 1, "emoji": "🔵"}, "GOOD": {"max": 3, "emoji": "🟡"}, "NORMAL": {"max": 10, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
     "FBTC": {"AMAZING": {"max": 100, "emoji": "🟢"}, "GREAT": {"max": 200, "emoji": "🔵"}, "GOOD": {"max": 400, "emoji": "🟡"}, "NORMAL": {"max": 800, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
+    "XEC": {"AMAZING": {"max": 1800, "emoji": "🟢"}, "GREAT": {"max": 2400, "emoji": "🔵"}, "GOOD": {"max": 3000, "emoji": "🟡"}, "NORMAL": {"max": 5000, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
     # Scrypt coins (thresholds in PH/s - Scrypt network is much smaller)
     "LTC": {"AMAZING": {"max": 0.5, "emoji": "🟢"}, "GREAT": {"max": 0.8, "emoji": "🔵"}, "GOOD": {"max": 1.2, "emoji": "🟡"}, "NORMAL": {"max": 2.0, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
     "DOGE": {"AMAZING": {"max": 0.8, "emoji": "🟢"}, "GREAT": {"max": 1.2, "emoji": "🔵"}, "GOOD": {"max": 1.8, "emoji": "🟡"}, "NORMAL": {"max": 3.0, "emoji": "⚪"}, "HIGH": {"max": float('inf'), "emoji": "🔴"}},
@@ -6523,8 +6590,7 @@ COIN_NET_CRASH = {
     "XMY": {"floor": 0.3, "drop": 0.5, "reset": 1},     # XMY: small multi-algo network
     "FBTC": {"floor": 80, "drop": 100, "reset": 150},   # FBTC: newer chain
     "XEC": {"floor": 2000, "drop": 2500, "reset": 3000},  # XEC: ~2-5 EH/s network (SHA-256d, Bitcoin ABC)
-    "QBX": {"floor": 0.05, "drop": 0.08, "reset": 0.12},  # QBX: new small network
-    # Scrypt coins (much smaller networks, values in PH/s)
+        # Scrypt coins (much smaller networks, values in PH/s)
     "LTC": {"floor": 0.8, "drop": 0.9, "reset": 1.1},   # LTC: ~1 PH/s network
     "DOGE": {"floor": 1.2, "drop": 1.4, "reset": 1.6},  # DOGE: ~1.5 PH/s network (merge-mined with LTC)
     "DGB-SCRYPT": {"floor": 0.04, "drop": 0.05, "reset": 0.07},  # DGB Scrypt algo
@@ -6564,8 +6630,29 @@ ODDS_TH = CONFIG.get("odds_alert_threshold", 30)
 
 # Thermal protection settings (AxeOS emergency stop)
 TEMP_EMERGENCY = CONFIG.get("temp_emergency", 95)           # Immediate stop temperature
+# Physical ceiling for a believable ASIC chip/board temperature. Miner-reported temps
+# above this are sensor glitches or parse errors, not real readings — acting on them
+# would false-alarm or, worse, emergency-stop a healthy miner. Set well above the emergency
+# threshold (95°C): a genuine thermal runaway rises continuously and trips the emergency band
+# first, so only unambiguous garbage (stuck/huge/misparsed values) is ever discarded here.
+TEMP_SANITY_MAX = CONFIG.get("temp_sanity_max", 150)
 THERMAL_SHUTDOWN_SUSTAINED_SEC = CONFIG.get("thermal_shutdown_sustained_sec", 90)  # Seconds at TEMP_CRIT before stop
 THERMAL_SHUTDOWN_ENABLED = CONFIG.get("thermal_shutdown_enabled", True)
+# Require fan-failure / dead-hashboard conditions to persist this long before alerting.
+# A single 0-RPM or 0-hashrate sample is routinely transient (poll race during the miner's
+# own fan ramp or board re-init); at the 120s check interval this needs a 2nd confirming cycle.
+FAN_FAILURE_SUSTAINED_SEC = CONFIG.get("fan_failure_sustained_sec", 90)
+HASHBOARD_DEAD_SUSTAINED_SEC = CONFIG.get("hashboard_dead_sustained_sec", 90)
+# A genuine reboot resets the miner's uptime counter to a small value (large backward step).
+# A small backward step is clock skew (NTP step correction), not a reboot — treating it as a
+# blip produces false miner_reboot and, when 2+ coincide, false power_event alerts.
+UPTIME_REBOOT_MIN_DROP_SEC = CONFIG.get("uptime_reboot_min_drop_sec", 120)
+# Minimum spacing between chronic-issue count increments per (miner, alert_type). A continuously
+# detected issue advances the chronic count at most this often (default hourly) instead of every
+# monitoring cycle — so one ongoing issue can't inflate into a "5x in 0.2h" chronic meta-alert,
+# while still being decoupled from the global per-alert-type send cooldown (which would otherwise
+# under-count chronic issues across multiple simultaneously-affected miners).
+CHRONIC_COUNT_MIN_INTERVAL = CONFIG.get("chronic_count_min_interval", 3600)
 
 # Financial alert settings
 PRICE_CRASH_PCT = CONFIG.get("price_crash_pct", 15)             # Alert when price drops 15%+ in 1 hour
@@ -6573,6 +6660,13 @@ PRICE_CRASH_ENABLED = CONFIG.get("price_crash_enabled", True)
 PAYOUT_CHECK_INTERVAL = CONFIG.get("payout_check_interval", 3600)  # Check wallet balance every 1 hour
 MISSING_PAYOUT_DAYS = CONFIG.get("missing_payout_days", 7)        # Alert if no payout for N days
 REVENUE_DECLINE_PCT = CONFIG.get("revenue_decline_pct", 50)       # Alert when pace is 50%+ below last month
+# Wallet balance sources (node scantxoutset vs external API) can disagree transiently or return
+# partial reads. Require a balance DROP to persist this many consecutive checks before firing a
+# (panic-grade) wallet_drop alert — a real drain persists, so this only delays a genuine alert.
+WALLET_DROP_CONFIRM_READS = CONFIG.get("wallet_drop_confirm_reads", 3)
+# Ignore balance increases below this floor as dust/rounding noise between the two balance
+# sources, so source disagreement can't manufacture a false payout_received alert.
+PAYOUT_MIN_CHANGE = CONFIG.get("payout_min_change", 0.001)
 
 # ZMQ staleness thresholds per coin (seconds) - scaled to block time
 # Threshold ~= 5-10x expected block time so we expect several blocks before alerting
@@ -6590,12 +6684,12 @@ COIN_ZMQ_STALE_THRESHOLDS = {
     "CAT": 420,             # Catcoin: ~60s blocks × 7
     # Medium block coins (150s block time)
     "LTC": 1050,            # Litecoin: 150s blocks × 7 = 1050s (~17.5 min)
-    "QBX": 1050,            # Q-BitX: 150s blocks × 7 = 1050s (~17.5 min)
-    # Slow block coins (600s block times)
+        # Slow block coins (600s block times)
     "BTC": 3600,            # Bitcoin: 600s blocks × 6 = 3600s (60 min, ~0.25% false positive)
     "BCH": 3600,            # Bitcoin Cash: 600s blocks × 6
     "BCH2": 3600,           # Bitcoin Cash II: 600s blocks × 6 (same as BCH)
     "BC2": 3600,            # Bitcoin II: 600s blocks × 6
+    "XEC": 3600,            # eCash: 600s blocks × 6 (Bitcoin ABC, same as BCH)
     # Medium-slow block coins (300s = 5-minute block time)
     "BTCS": 2100,           # Bitcoin Silver: 300s blocks × 7 = 2100s (~35 min)
     "NMC": 3600,            # Namecoin: 600s blocks × 6
@@ -7915,6 +8009,33 @@ def fetch_pool_connections():
         return _pool_connections_cache["connections"]
 
 
+def is_miner_connected_to_pool(name, ip, worker_names=None):
+    """Best-effort check: is this miner currently in the pool's active stratum connections?
+
+    Returns True ONLY on positive evidence — the admin connections API is configured and the
+    miner matches a live connection by IP or worker name. Returns False whenever we cannot
+    verify, so a genuine outage is never masked. Used to suppress false miner_offline alerts
+    (and auto-restarts) when a miner's HTTP API is briefly unreachable but it is still mining
+    to the pool. The pool drops dead TCP connections well within MINER_OFFLINE_TH, so a positive
+    match means the miner is genuinely reachable, not a lingering stale socket.
+    """
+    if not CONFIG.get("pool_admin_api_key", ""):
+        return False  # connections endpoint is admin-only; can't verify → don't suppress
+    try:
+        connections = fetch_pool_connections()
+    except Exception:
+        return False
+    by_ip = connections.get("by_ip", {})
+    by_worker = connections.get("by_worker", {})
+    if ip and ip in by_ip:
+        return True
+    ids = (worker_names or {}).get(name, {}) or {}
+    for cand in [ids.get("worker"), ids.get("hostname"), name]:
+        if cand and cand in by_worker:
+            return True
+    return False
+
+
 def fetch_pool_worker_stats(worker_name, miner_address=None):
     """Fetch worker stats from pool API.
 
@@ -8935,37 +9056,6 @@ def fetch_network_stats(coin=None):
             logger.warning("CAT network stats unavailable")
             return None
 
-        elif coin in ("QBX", "QBITX"):
-            # Q-BitX - SHA256d, 150 second block time
-            # No external API available — use RPC getnetworkhashps (actual block timing)
-            # then pool API / formula fallback
-            qbx_rpc_port = coin_config.get("rpc_port", 8344) if coin_config else 8344
-
-            # Method 1: getnetworkhashps RPC — uses moving average over recent blocks
-            nhps = _rpc_call("127.0.0.1", qbx_rpc_port, "getnetworkhashps")
-            if nhps and isinstance(nhps, (int, float)) and nhps > 0:
-                # Still need difficulty for ETB/odds calculations
-                mining = _rpc_call("127.0.0.1", qbx_rpc_port, "getmininginfo")
-                diff = float(mining.get("difficulty", 0)) if mining else 0
-                return {"network_phs": nhps / 1e15, "difficulty": diff, "algorithm": "sha256d"}
-
-            # Method 2: Pool API + formula fallback
-            pool_stats = fetch_pool_stats_by_symbol(coin)
-            pool_data = pool_stats.get("poolStats", {}) if pool_stats else {}
-            if pool_data.get("networkDifficulty"):
-                diff = float(pool_data.get("networkDifficulty", 0))
-                if diff > 0:
-                    return {"network_phs": (diff * (2**32) / 150) / 1e15, "difficulty": diff, "algorithm": "sha256d"}
-
-            # Method 3: getmininginfo RPC + formula fallback
-            rpc_result = _rpc_call("127.0.0.1", qbx_rpc_port, "getmininginfo")
-            if rpc_result and "difficulty" in rpc_result:
-                diff = float(rpc_result["difficulty"])
-                if diff > 0:
-                    return {"network_phs": (diff * (2**32) / 150) / 1e15, "difficulty": diff, "algorithm": "sha256d"}
-            logger.warning("QBX network stats unavailable")
-            return None
-
         else:
             # Unknown coin - cannot fetch stats
             logger.warning(f"Unknown coin {coin}, cannot fetch network stats")
@@ -9210,12 +9300,19 @@ class InfrastructureHealth:
         return self.metrics.get("stratum_zmq_last_message_age_seconds", 0)
 
     def get_block_notify_mode(self):
-        """Get block notification mode: 1=ZMQ, 0=RPC polling."""
-        return int(self.metrics.get("stratum_block_notify_mode", 0))
+        """Get block notification mode: 1=ZMQ, 0=RPC polling, None=metric absent.
+
+        Returns None (not 0) when the metric is missing from a partial scrape, so a
+        scrape gap is not misread as a ZMQ->polling fallback and back (two false alerts).
+        """
+        v = self.metrics.get("stratum_block_notify_mode")
+        return int(v) if v is not None else None
 
     def get_block_notify_label(self):
         """Human-readable block notification mode."""
         mode = self.get_block_notify_mode()
+        if mode is None:
+            return "❓ Unknown"
         return "🔔 ZMQ (Fast)" if mode == 1 else "🔄 RPC Polling (Slow)"
 
     def get_wal_errors(self):
@@ -9333,6 +9430,31 @@ class InfrastructureHealth:
 
 # Global infrastructure health tracker
 _infra_health = InfrastructureHealth()
+
+# Pool-side rejection confirmation threshold (percent). Below this, a high
+# miner-reported reject rate is treated as internal HW rejects (BitAxe/Avalon
+# cgminer counters), not a real pool-side problem. Matches the threshold used by
+# the share-rejection-spike detector so both detectors stay consistent.
+POOL_REJECT_CONFIRM_PCT = 5
+
+
+def compute_pool_side_reject_pct(metrics):
+    """Pool-side (true) rejection percentage from Prometheus metrics, excluding stale shares.
+
+    Returns None when metrics are missing or pool-side volume is too low (<=100 shares)
+    to compute a reliable rate. Used to cross-reference miner-reported reject rates so
+    internal hardware rejects don't trigger false zombie/rejection alerts.
+    """
+    if not metrics:
+        return None
+    pool_acc = metrics.get("stratum_shares_accepted_total", 0)
+    pool_rej_total = metrics.get("stratum_shares_rejected_total", 0)
+    pool_stale = metrics.get('stratum_shares_rejected_total{reason="stale"}', 0)
+    pool_rej = max(0, pool_rej_total - pool_stale)
+    pool_total = pool_acc + pool_rej
+    if pool_total <= 100:
+        return None
+    return (pool_rej / pool_total) * 100
 
 
 def fetch_prometheus_metrics():
@@ -9821,7 +9943,7 @@ def _fetch_fx_rates_sentinel():
 
 
 def _fetch_alt_coin_prices_sentinel():
-    """Fetch USD spot prices for BTCS (CoinPaprika), BCH2 (CoinPaprika), QBX (Klingex).
+    """Fetch USD spot prices for BTCS (CoinPaprika), BCH2 (CoinPaprika).
 
     Returns {SYMBOL: usd_price_float}. Cached 120 s (matches CoinGecko cadence).
     """
@@ -9834,22 +9956,6 @@ def _fetch_alt_coin_prices_sentinel():
                 usd = (data.get("quotes") or {}).get("USD", {}).get("price")
                 if usd is not None and float(usd) > 0:
                     prices[sym] = float(usd)
-        # QBX via Klingex /api/markets
-        markets = _http("https://api.klingex.io/api/markets")
-        if markets:
-            for m in markets:
-                if (
-                    str(m.get("base_asset_symbol", "")).upper() == "QBX"
-                    and str(m.get("quote_asset_symbol", "")).upper() == "USDT"
-                    and m.get("is_active")
-                ):
-                    raw_price = m.get("last_price")
-                    decimals = int(m.get("price_decimals", 6))
-                    if raw_price is not None:
-                        usdt_price = float(raw_price) / (10 ** decimals)
-                        if usdt_price > 0:
-                            prices["QBX"] = usdt_price
-                    break
         return prices or None
     return _cached_fetch("alt_coin_prices", _fetch, 120) or {}
 
@@ -9913,12 +10019,12 @@ def fetch_all_prices():
     """Fetch all coin prices in a single API call for efficiency.
 
     Includes SHA-256d coins (DGB, BTC, BCH, NMC, SYS, XMY, FBTC) and Scrypt coins (LTC, DOGE, PEP, CAT)
-    from CoinGecko, plus BTCS/BCH2 from CoinPaprika and QBX from Klingex with FX conversion.
+    from CoinGecko, plus BTCS/BCH2 from CoinPaprika with FX conversion.
     Also includes sat values (price in BTC satoshis) for all non-BTC coins.
     """
     def _fetch():
         # Include all supported coins in a single API call
-        coins = "digibyte,bitcoin,bitcoin-cash,litecoin,dogecoin,namecoin,syscoin,myriadcoin,fractal-bitcoin,pepecoin,catcoin"
+        coins = "digibyte,bitcoin,bitcoin-cash,litecoin,dogecoin,namecoin,syscoin,myriadcoin,fractal-bitcoin,pepecoin,catcoin,ecash"
         d = _http(f"https://api.coingecko.com/api/v3/simple/price?ids={coins}&vs_currencies=" + VS_CURRENCIES)
         if d:
             # Map CoinGecko IDs to internal symbols
@@ -9926,7 +10032,7 @@ def fetch_all_prices():
                 "digibyte": "dgb", "bitcoin": "btc", "bitcoin-cash": "bch",
                 "litecoin": "ltc", "dogecoin": "doge", "namecoin": "nmc",
                 "syscoin": "sys", "myriadcoin": "xmy", "fractal-bitcoin": "fbtc",
-                "pepecoin": "pep", "catcoin": "cat"
+                "pepecoin": "pep", "catcoin": "cat", "ecash": "xec"
             }
 
             _cur = get_currency_meta().get("code", "usd")
@@ -9950,7 +10056,7 @@ def fetch_all_prices():
                 result[f"dgb-scrypt_{cur_code}"] = result.get(f"dgb_{cur_code}", 0)
             result["dgb-scrypt_sats"] = result.get("dgb_sats", 0)
 
-            # Merge alternative prices (BTCS, BCH2, QBX) with FX conversion
+            # Merge alternative prices (BTCS, BCH2) with FX conversion
             result.update(_build_alt_price_entries(_fetch_alt_coin_prices_sentinel()))
 
             return result
@@ -10017,6 +10123,16 @@ def fetch_fbtc_price():
         return None
     return _cached_fetch("fbtc_price", _fetch, 120)
 
+def fetch_xec_price():
+    """Fetch eCash price from CoinGecko."""
+    def _fetch():
+        d = _http("https://api.coingecko.com/api/v3/simple/price?ids=ecash&vs_currencies=" + VS_CURRENCIES)
+        if d:
+            xec = d.get("ecash", {})
+            return {c: xec.get(c, 0) for c in CURRENCY_CODES}
+        return None
+    return _cached_fetch("xec_price", _fetch, 120)
+
 def fetch_pep_price():
     """Fetch PepeCoin price from CoinGecko."""
     def _fetch():
@@ -10040,10 +10156,10 @@ def fetch_cat_price():
 def fetch_coin_price(symbol):
     """Fetch price for a specific coin.
 
-    Supports all 17 coins: SHA-256d (DGB, BTC, BCH, BCH2, BC2, BTCS, NMC, SYS, XMY, FBTC, XEC, QBX)
+    Supports all 16 coins: SHA-256d (DGB, BTC, BCH, BCH2, BC2, BTCS, NMC, SYS, XMY, FBTC, XEC)
     and Scrypt (LTC, DOGE, DGB-SCRYPT, PEP, CAT).
     DGB-SCRYPT uses DGB price (same blockchain).
-    BCH2/BTCS use CoinPaprika; QBX uses Klingex. BC2 has no price source yet.
+    BCH2/BTCS use CoinPaprika. BC2 has no price source yet.
     """
     symbol = symbol.upper()
     # SHA-256d coins
@@ -10053,7 +10169,7 @@ def fetch_coin_price(symbol):
         return fetch_btc_price()
     elif symbol == "BCH":
         return fetch_bch_price()
-    elif symbol in ("BCH2", "BTCS", "QBX"):
+    elif symbol in ("BCH2", "BTCS"):
         alt = _fetch_alt_coin_prices_sentinel()
         usd = alt.get(symbol)
         if not usd:
@@ -10078,6 +10194,8 @@ def fetch_coin_price(symbol):
         return fetch_sys_price()
     elif symbol == "XMY":
         return fetch_xmy_price()
+    elif symbol == "XEC":
+        return fetch_xec_price()
     # Scrypt coins
     elif symbol == "LTC":
         return fetch_ltc_price()
@@ -10119,8 +10237,7 @@ def get_coin_volatility_threshold(symbol):
         "SYS": 4,   # Syscoin: relatively stable merge-mined chain
         "XMY": 6,   # Myriad: multi-algo, moderate volatility
         "FBTC": 8,  # Fractal Bitcoin: newer chain, higher volatility
-        "QBX": 10,  # Q-BitX: new chain, high volatility
-        # Scrypt coins (generally more stable due to merge-mining)
+                # Scrypt coins (generally more stable due to merge-mining)
         "LTC": 3,   # Litecoin: relatively stable, some merge-mining with DOGE
         "DOGE": 3,  # Dogecoin: stable due to merge-mining with LTC
         "DGB-SCRYPT": 6,  # DGB Scrypt algo: moderate volatility
@@ -10262,28 +10379,6 @@ def fetch_block_reward_for_coin(symbol):
         reward = 50 / (2 ** halvings)  # Initial 50 BC2, halved each cycle
         return {"block_height": bh, "sha256_reward": reward, "symbol": "BC2"}
 
-    def _fetch_qbx():
-        # Q-BitX (QBX): Post-Quantum Bitcoin fork, SHA-256d
-        # 12.5 QBX initial reward, halving every 840,000 blocks (~4 years at 150s blocks)
-        # 2.5 min block time, 21M max supply
-        bh = 1000  # Default fallback (new chain, launched April 2025)
-
-        # Method 1: Pool API (if mining QBX)
-        pool_bh = _get_block_height_from_pool("QBX")
-        if pool_bh > 0:
-            bh = pool_bh
-        else:
-            # Method 2: Direct RPC to QBX daemon (port 8344)
-            rpc_bh = _get_block_height_from_rpc("QBX", 8344)
-            if rpc_bh > 0:
-                bh = rpc_bh
-
-        # Calculate reward based on halvings (every 840,000 blocks)
-        halvings = bh // 840000
-        reward = 12.5 / (2 ** min(halvings, 10))  # Initial 12.5 QBX, halved each cycle
-        return {"block_height": bh, "sha256_reward": reward, "symbol": "QBX"}
-
-    # === SHA-256d MERGE-MINEABLE COINS ===
 
     def _fetch_nmc():
         # Namecoin (NMC): First AuxPoW coin, same halving schedule as Bitcoin
@@ -10441,8 +10536,6 @@ def fetch_block_reward_for_coin(symbol):
         return _cached_fetch("block_reward_bc2", _fetch_bc2, 43200)
     elif symbol == "BTCS":
         return 50.0  # BTCS: young chain (Jul 2024), static fallback — no public API yet
-    elif symbol == "QBX":
-        return _cached_fetch("block_reward_qbx", _fetch_qbx, 43200)
     # SHA-256d merge-mineable coins
     elif symbol == "NMC":
         return _cached_fetch("block_reward_nmc", _fetch_nmc, 43200)
@@ -11066,14 +11159,16 @@ def calc_odds(net_phs, fleet_ths, coin=None):
         "DGB": 1152,       # 86400 / 75 = 1152 (75s target, but 15s actual for SHA256d algo)
         "BTC": 144,        # 86400 / 600 = 144
         "BCH": 144,        # 86400 / 600 = 144
+        "BCH2": 144,       # 86400 / 600 = 144 (same as BCH)
         "BC2": 144,        # 86400 / 600 = 144
+        "BTCS": 288,       # 86400 / 300 = 288 (300s block time)
         # SHA-256d merge-mineable aux chains
         "NMC": 144,        # 86400 / 600 = 144 (same as Bitcoin)
         "SYS": 1440,       # 86400 / 60 = 1440 (60s block time)
         "XMY": 1440,       # 86400 / 60 = 1440 (60s per algo, 5 algos)
         "FBTC": 2880,      # 86400 / 30 = 2880 (30s block time)
-        "QBX": 576,        # 86400 / 150 = 576 (150s block time)
-        # Scrypt coins
+        "XEC": 144,        # 86400 / 600 = 144 (10min block time)
+                # Scrypt coins
         "LTC": 576,        # 86400 / 150 = 576
         "DOGE": 1440,      # 86400 / 60 = 1440
         "DGB-SCRYPT": 1152, # Same as DGB SHA256d
@@ -11105,21 +11200,20 @@ def calc_odds(net_phs, fleet_ths, coin=None):
 COIN_BLOCKS_PER_DAY = {
     # SHA-256d
     "DGB": 1152, "BTC": 144, "BCH": 144, "BCH2": 144, "BC2": 144, "BTCS": 288,
-    "NMC": 144, "SYS": 1440, "XMY": 1440, "FBTC": 2880, "XEC": 144, "QBX": 576,
+    "NMC": 144, "SYS": 1440, "XMY": 1440, "FBTC": 2880, "XEC": 144,
     # Scrypt
     "LTC": 576, "DOGE": 1440, "DGB-SCRYPT": 1152, "PEP": 1440, "CAT": 144,
 }
 
 COIN_ALGORITHM_FAMILY = {
     "DGB": "sha256d", "BTC": "sha256d", "BCH": "sha256d", "BCH2": "sha256d", "BC2": "sha256d", "BTCS": "sha256d",
-    "NMC": "sha256d", "SYS": "sha256d", "XMY": "sha256d", "FBTC": "sha256d", "XEC": "sha256d", "QBX": "sha256d",
+    "NMC": "sha256d", "SYS": "sha256d", "XMY": "sha256d", "FBTC": "sha256d", "XEC": "sha256d",
     "LTC": "scrypt", "DOGE": "scrypt", "DGB-SCRYPT": "scrypt", "PEP": "scrypt", "CAT": "scrypt",
 }
 
 # Price key mapping: coin symbol -> key prefix in fetch_all_prices() result
 _PRICE_KEY_MAP = {
-    "DGB": "dgb", "BTC": "btc", "BCH": "bch", "BCH2": "bch2", "BC2": "bc2", "BTCS": "btcs", "QBX": "qbx",
-    "NMC": "nmc", "SYS": "sys", "XMY": "xmy", "FBTC": "fbtc", "XEC": "xec",
+    "DGB": "dgb", "BTC": "btc", "BCH": "bch", "BCH2": "bch2", "BC2": "bc2", "BTCS": "btcs",     "NMC": "nmc", "SYS": "sys", "XMY": "xmy", "FBTC": "fbtc", "XEC": "xec",
     "LTC": "ltc", "DOGE": "doge", "DGB-SCRYPT": "dgb-scrypt", "PEP": "pep", "CAT": "cat",
 }
 
@@ -15542,7 +15636,7 @@ def create_monthly_earnings_embed(earnings, prices, wallet_balance=None, coin_sy
     # Get primary coin for wallet display
     primary_coin = coin_symbol or get_primary_coin() or "UNKNOWN"
 
-    # Multi-coin earnings display with code blocks - ALL 17 coins (alphabetically ordered)
+    # Multi-coin earnings display with code blocks - ALL 16 coins (alphabetically ordered)
     coins_mined = []
     # SHA-256d coins (alphabetically)
     if earnings.get('bc2', 0) > 0:
@@ -15715,7 +15809,7 @@ def create_quarterly_embed(stats, trends, prices, wallet_balance=None, coin_symb
     # Get primary coin for wallet display
     primary_coin = coin_symbol or get_primary_coin() or "UNKNOWN"
 
-    # Performance section with multi-coin - ALL 17 coins (alphabetically ordered)
+    # Performance section with multi-coin - ALL 16 coins (alphabetically ordered)
     perf = f"🏆 Blocks: **{stats.get('total_blocks', 0)}**\n"
 
     # Show each coin mined - SHA-256d coins (alphabetically)
@@ -16651,7 +16745,7 @@ class AchievementTracker:
 
 # === MONITOR STATE ===
 class MonitorState:
-    _PERSIST_KEYS = ["last_report_hour","last_weekly_report","last_monthly_report","last_quarterly_report","last_special_date","last_maintenance_reminder","last_alerts","miner_offline_since","miner_restart_times","zombie_kick_times","temp_alert_sent","miner_offline_alert_sent","miner_last_uptime","network_history","block_history","miner_health_history","miner_temp_history","miner_hashrate_history","earnings","weekly_stats","quarterly_stats","lifetime_stats","miner_uptimes","miner_block_counts","miner_stale_history","miner_hashrate_baseline","recent_blips","pool_share_history","network_crash_first_detected","network_crash_alert_sent","network_baseline_phs","pool_drop_first_detected","pool_drop_alert_sent","expected_fleet_ths","pool_blocks_found","personal_bests","last_daily_report","hashrate_history_24h","coin_changes","mode_changes","pending_alerts","chronic_issues","miner_pool_hashrate","global_alert_batch","last_batch_flush","miner_stable_online_since","known_block_statuses","orphan_alerts_sent","seen_pool_block_hashes","sats_history","sats_surge_last_alert","high_odds_last_alert","high_odds_first_detected","thermal_critical_since","thermal_shutdown_sent","fan_alert_sent","last_known_orphan_count","zmq_stale_alerted","worker_count_baseline","share_loss_alerted","last_block_notify_mode","last_replica_count","circuit_breaker_alerted","backpressure_alerted","last_wal_write_errors","last_wal_commit_errors","zmq_disconnected_alerted","known_miner_pool_urls","url_mismatch_alerted","hashboard_alert_sent","miner_hw_errors","hw_error_alert_sent","best_share_difficulty","price_history","price_crash_last_alert","last_wallet_balance","wallet_balance_last_check","missing_payout_alerted","payout_deferred_from_quiet","previous_month_earnings","revenue_decline_alerted","coin_wallet_balances","coin_wallet_last_check","coin_missing_payout_alerted","coin_payout_deferred","coin_wallet_drop_zeros"]
+    _PERSIST_KEYS = ["last_report_hour","last_weekly_report","last_monthly_report","last_quarterly_report","last_special_date","last_maintenance_reminder","last_alerts","miner_offline_since","miner_restart_times","zombie_kick_times","temp_alert_sent","miner_offline_alert_sent","miner_last_uptime","network_history","block_history","miner_health_history","miner_temp_history","miner_hashrate_history","earnings","weekly_stats","quarterly_stats","lifetime_stats","miner_uptimes","miner_block_counts","miner_stale_history","miner_hashrate_baseline","baseline_poison_migrated","recent_blips","pool_share_history","network_crash_first_detected","network_crash_alert_sent","network_baseline_phs","pool_drop_first_detected","pool_drop_alert_sent","expected_fleet_ths","pool_blocks_found","personal_bests","last_daily_report","hashrate_history_24h","coin_changes","mode_changes","pending_alerts","chronic_issues","miner_pool_hashrate","global_alert_batch","last_batch_flush","miner_stable_online_since","known_block_statuses","orphan_alerts_sent","seen_pool_block_hashes","sats_history","sats_surge_last_alert","high_odds_last_alert","high_odds_first_detected","thermal_critical_since","thermal_shutdown_sent","fan_alert_sent","last_known_orphan_count","zmq_stale_alerted","worker_count_baseline","share_loss_alerted","last_block_notify_mode","last_replica_count","circuit_breaker_alerted","backpressure_alerted","last_wal_write_errors","last_wal_commit_errors","zmq_disconnected_alerted","known_miner_pool_urls","url_mismatch_alerted","hashboard_alert_sent","miner_hw_errors","hw_error_alert_sent","best_share_difficulty","price_history","price_crash_last_alert","last_wallet_balance","wallet_balance_last_check","missing_payout_alerted","payout_deferred_from_quiet","previous_month_earnings","revenue_decline_alerted","coin_wallet_balances","coin_wallet_last_check","coin_missing_payout_alerted","coin_payout_deferred","coin_wallet_drop_zeros"]
 
     def __init__(self):
         self.data_dir = DATA_DIR
@@ -16694,6 +16788,7 @@ class MonitorState:
         self.miner_block_counts = {}
         self.miner_stale_history = {}
         self.miner_hashrate_baseline = {}
+        self.baseline_poison_migrated = False  # One-time v2.5.2 cleanup of pre-guard poisoned baselines
         self.recent_blips = []
         self.pool_share_history = {}  # Track pool-side share verification
 
@@ -16805,13 +16900,17 @@ class MonitorState:
         # NEW MONITORING ALERTS - State tracking for B1-B8 alerts
         # ═══════════════════════════════════════════════════════════════════════════════
         self.fan_alert_sent = {}           # {miner_name: True} cleared when fans resume
+        self.fan_dead_since = {}           # {miner_name: first_dead_fan_ts} — require sustained before alerting
+        self.hashboard_dead_since = {}     # {miner_name: first_dead_chain_ts} — require sustained before alerting
         self.last_known_orphan_count = 0   # Total orphaned blocks from Prometheus
         self.orphan_count_initialized = False  # First reading is baseline, don't alert
         self.zmq_stale_alerted = False     # Cleared when ZMQ age drops below threshold
         self.worker_count_baseline = []    # Rolling list of last 10 worker count samples
+        self.worker_drop_confirm = 0       # Consecutive sub-threshold worker reads (debounce restarts)
         self.share_loss_alerted = False    # Cleared when share loss rate drops below threshold
         self.last_block_notify_mode = None # Last seen block notification mode (ZMQ vs polling)
         self.last_replica_count = None     # Last seen HA replica count
+        self.replica_drop_confirm = 0      # Consecutive checks a replica drop has persisted (debounce)
 
         # ═══════════════════════════════════════════════════════════════════════════════
         # INFRASTRUCTURE CRITICAL - Circuit breaker, backpressure, WAL, ZMQ socket
@@ -16856,7 +16955,7 @@ class MonitorState:
         self.coin_wallet_last_check = {}       # {symbol: timestamp} — last balance check time per coin
         self.coin_missing_payout_alerted = {}  # {symbol: bool}
         self.coin_payout_deferred = {}         # {symbol: bool} — quiet hours deferral per coin
-        self.coin_wallet_drop_zeros = {}       # {symbol: int} — consecutive zero readings per coin
+        self.coin_wallet_drop_zeros = {}       # {symbol: int} — consecutive balance-drop confirmations per coin
         self.wallet_issues = []               # List of (symbol, address, issue) from startup validation
         # Auto fan control state
         self.previous_month_earnings = {}      # Snapshot of last month's final earnings totals
@@ -16907,6 +17006,35 @@ class MonitorState:
                 self.high_odds_session_alerted = {}
         except (json.JSONDecodeError, IOError, OSError, KeyError, TypeError) as e:
             logger.warning(f"Could not load state file: {e}")
+
+        # One-time migration (v2.5.2): purge per-miner hashrate baselines that were poisoned
+        # before update_hashrate_baseline() gained a high-side outlier guard. A single glitched
+        # or units-misparsed spike could inflate a baseline far above the miner's real hashrate;
+        # because the baseline stops adapting while a miner reads "degraded", it never self-heals
+        # and fires perpetual false degradation alerts. Detect a poisoned baseline by comparing it
+        # to the median of recent readings and drop it so the miner relearns a correct baseline.
+        # Guarded by a persisted flag so it runs exactly once, then stays dormant.
+        # TODO(v2.5.3): remove this one-time migration. Delete (1) this whole `if not
+        # self.baseline_poison_migrated:` block, (2) the `self.baseline_poison_migrated = False`
+        # line in __init__, and (3) "baseline_poison_migrated" from _PERSIST_KEYS. The high-side
+        # outlier guard in update_hashrate_baseline() is permanent and stays.
+        if not self.baseline_poison_migrated:
+            try:
+                for _name in list(self.miner_hashrate_baseline.keys()):
+                    _b = self.miner_hashrate_baseline.get(_name) or {}
+                    _avg = _b.get("avg", 0)
+                    _recent = sorted(x.get("hr", 0) for x in self.miner_hashrate_history.get(_name, [])[-15:] if x.get("hr", 0) > 0)
+                    if _avg <= 0 or len(_recent) < 5:
+                        continue  # not enough evidence to judge — leave it alone
+                    _median = _recent[len(_recent) // 2]
+                    if _median > 0 and _avg > _median * 2:
+                        del self.miner_hashrate_baseline[_name]
+                        logger.warning(f"v2.5.2 migration: cleared poisoned hashrate baseline for {_name} "
+                                       f"(baseline {_avg:.0f} GH/s vs recent median {_median:.0f} GH/s); will relearn")
+            except Exception as _e:
+                logger.warning(f"v2.5.2 baseline migration skipped: {_e}")
+            self.baseline_poison_migrated = True
+            self.save()
 
         # Re-seed pool_blocks_found from the database if state.json has a stale
         # (lower) value — handles database restores where historical blocks are
@@ -17462,29 +17590,34 @@ class MonitorState:
     # ═══════════════════════════════════════════════════════════════════════════════
 
     def track_chronic_issue(self, miner_name, alert_type):
-        """Track recurring alerts for the same miner to detect chronic issues."""
+        """Track recurring alerts for the same miner to detect chronic issues.
+
+        Counting is rate-limited to once per CHRONIC_COUNT_MIN_INTERVAL per (miner, alert_type):
+        a continuously-detected issue advances the count roughly hourly instead of every monitoring
+        cycle, so one ongoing issue no longer inflates into a "5x in 0.2h" chronic meta-alert.
+        `last_seen` is refreshed on every call so the 2h auto-reset reflects true recurrence; only
+        the count is throttled. Counting from detection (not alert delivery) keeps it independent of
+        the global per-alert-type send cooldown, so simultaneously-affected miners each track.
+        """
         now = time.time()
         key = f"{miner_name}:{alert_type}"
 
-        if key not in self.chronic_issues:
+        issue = self.chronic_issues.get(key)
+        if issue is None or (now - issue["last_seen"] > 7200):
+            # New issue, or the prior episode resolved (no recurrence for 2h) — start fresh.
             self.chronic_issues[key] = {
                 "count": 1,
                 "first_seen": now,
                 "last_seen": now,
+                "last_count": now,
                 "alerted": False
             }
         else:
-            issue = self.chronic_issues[key]
-            # Reset if issue was resolved (no alert for 2 hours)
-            if now - issue["last_seen"] > 7200:
-                self.chronic_issues[key] = {
-                    "count": 1,
-                    "first_seen": now,
-                    "last_seen": now,
-                    "alerted": False
-                }
-            else:
+            issue["last_seen"] = now
+            # Throttle count increments so continuous detection doesn't inflate the count.
+            if now - issue.get("last_count", issue.get("first_seen", now)) >= CHRONIC_COUNT_MIN_INTERVAL:
                 issue["count"] += 1
+                issue["last_count"] = now
                 issue["last_seen"] = now
 
     def check_chronic_issues(self, miner_name):
@@ -17776,11 +17909,14 @@ class MonitorState:
             self.miner_hashrate_baseline[name] = {"avg": hashrate_ghs, "samples": 1, "last_alert": 0, "degradation_start": None}
             return None
         baseline = self.miner_hashrate_baseline[name]
+        is_high_outlier = baseline["samples"] >= 5 and hashrate_ghs > baseline["avg"] * 2
         is_outlier = baseline["samples"] >= 5 and hashrate_ghs < baseline["avg"] * 0.5
         is_degraded = baseline["samples"] >= 10 and hashrate_ghs < baseline["avg"] * 0.8
-        if not is_outlier and not is_degraded:
-            # Only incorporate into baseline when hashrate is within normal range (>80% of baseline)
-            # This prevents gradual baseline drift during sustained degradation
+        if not is_high_outlier and not is_outlier and not is_degraded:
+            # Only incorporate into baseline when hashrate is within normal range (>80% of baseline).
+            # Reject high spikes (>2x baseline) too: a single glitched/units-misparsed reading
+            # would otherwise be absorbed and ratchet the baseline up permanently, making every
+            # subsequent healthy reading look like a crash. This guards baseline drift both ways.
             samples = min(baseline["samples"], 100)
             baseline["avg"] = (baseline["avg"] * samples + hashrate_ghs) / (samples + 1)
             baseline["samples"] = samples + 1
@@ -17836,7 +17972,7 @@ class MonitorState:
         return new_miners
 
     def record_block(self, miner, block_num, network_phs, odds, coin_symbol=None):
-        """Record a block found. Supports all 17 coins including aux chains: NMC, SYS, XMY, FBTC."""
+        """Record a block found. Supports all 16 coins including aux chains: NMC, SYS, XMY, FBTC."""
         coin = coin_symbol.upper() if coin_symbol else (get_primary_coin() or "UNKNOWN")
         self.block_history.append({
             "t": time.time(), "miner": miner, "height": block_num,
@@ -18461,7 +18597,7 @@ class MonitorState:
             return
 
         now = time.time()
-        max_age = 7200  # Keep 2 hours of history (enough for 1h lookback + buffer)
+        max_age = 10800  # Keep 3 hours: ~2h baseline + two recent samples for crash confirmation
 
         # Only track prices for coins we're actually mining (no alerts for unrelated coins)
         # IMPORTANT: Do NOT fall back to all coins when detection fails — that causes
@@ -18507,24 +18643,26 @@ class MonitorState:
         for coin, history in self.price_history.items():
             if coin not in enabled_symbols:
                 continue  # Skip coins that aren't enabled
-            if len(history) < 2:
+            # Require a baseline plus two recent samples — a single anomalous low tick
+            # (thin-liquidity altcoin print / exchange-API glitch) must not fire a crash.
+            if len(history) < 3:
                 continue
 
-            current = history[-1]
-            current_usd = current["usd"]
+            current_usd = history[-1]["usd"]
+            confirm_usd = history[-2]["usd"]  # second-most-recent sample, ~1 lookback ago
 
-            # Find sample from ~1 hour ago
-            target_time = now - 3600
+            # Find baseline from ~2 hours ago so both recent samples are newer than it.
+            target_time = now - 7200
             baseline = None
             for sample in history:
                 if sample["ts"] <= target_time:
                     if baseline is None or sample["ts"] > baseline["ts"]:
                         baseline = sample
 
-            # If no sample at least 1 hour old, use oldest available if > 30 min old
+            # If no sample at least 2 hours old, use oldest available if > 1 hour old
             if baseline is None:
                 oldest = history[0]
-                if (now - oldest["ts"]) >= 1800:
+                if (now - oldest["ts"]) >= 3600:
                     baseline = oldest
 
             if baseline is None:
@@ -18534,10 +18672,11 @@ class MonitorState:
             if baseline_usd <= 0:
                 continue
 
-            # Calculate drop percentage (negative = price went down)
-            drop_pct = ((baseline_usd - current_usd) / baseline_usd) * 100
-
-            if drop_pct >= crash_pct:
+            # Require BOTH recent samples to be below the crash threshold (two consecutive
+            # confirmations). A transient single dip leaves the other sample above threshold,
+            # so it won't fire; a sustained crash confirms ~1 sample later.
+            threshold_usd = baseline_usd * (1 - crash_pct / 100.0)
+            if current_usd <= threshold_usd and confirm_usd <= threshold_usd:
                 # Check per-coin cooldown
                 last_alert = self.price_crash_last_alert.get(coin, 0)
                 if (now - last_alert) < cooldown:
@@ -18545,6 +18684,7 @@ class MonitorState:
 
                 self.price_crash_last_alert[coin] = now
 
+                drop_pct = ((baseline_usd - current_usd) / baseline_usd) * 100
                 crashes.append({
                     "coin": coin.upper(),
                     "current_usd": current_usd,
@@ -18577,7 +18717,14 @@ class MonitorState:
         for coin in SUPPORTED_COIN_SYMBOLS:
             amount = self.earnings.get(f"monthly_{coin}", 0)
             price_key = f"{coin}_{fiat_code}"
-            current_fiat += amount * all_prices.get(price_key, 0)
+            price = all_prices.get(price_key, 0)
+            if amount > 0 and price <= 0:
+                # A coin we earned in has no price this cycle (price-feed outage / partial
+                # response). Counting it as 0 would understate current revenue and fire a
+                # false revenue-decline alert. Skip the check until the price feed recovers.
+                logger.debug(f"Revenue velocity check skipped: missing price for {coin} (earned {amount}) — partial price feed")
+                return None
+            current_fiat += amount * price
 
         elapsed = time.time() - self.earnings.get("monthly_start", time.time())
         days_elapsed = max(elapsed / 86400, 0.5)
@@ -19143,7 +19290,7 @@ def monitor_loop(state):
                         if "result" in result:
                             r = result["result"]
                             progress = r.get("verificationprogress", 0)
-                            # Some daemons (e.g. QBX) report near-zero
+                            # Some daemons (e.g. BC2) report near-zero
                             # verificationprogress when fully synced.
                             blk = r.get("blocks", 0)
                             hdr = r.get("headers", 0)
@@ -19635,7 +19782,8 @@ def monitor_loop(state):
             # Check per-coin health (node status, sync) every 5 minutes
             if not in_startup_grace:
                 coin_health = check_all_coins_health()
-                handle_coin_health_alerts(coin_health, state)
+                if coin_health:  # only on a fresh check, not a cached no-op (keeps the streak honest)
+                    handle_coin_health_alerts(coin_health, state)
                 check_stuck_syncs(state)
                 check_dry_streak(state)
                 check_difficulty_changes(state)
@@ -19658,14 +19806,28 @@ def monitor_loop(state):
                         replica_count = ha_status.get("replica_count", ha_status.get("replicas", 0))
                         if isinstance(replica_count, (int, float)) and replica_count >= 0:
                             if state.last_replica_count is not None and replica_count < state.last_replica_count:
-                                alert_key = "ha_replica_drop"
-                                last_alert = state.last_alerts.get(alert_key, 0)
-                                cooldown = ALERT_COOLDOWNS.get("ha_replica_drop", 3600)
-                                if (current_time - last_alert) >= cooldown:
-                                    send_alert("ha_replica_drop", create_ha_replica_embed(state.last_replica_count, replica_count), state)
-                                    state.last_alerts[alert_key] = current_time
-                                    logger.warning(f"HA REPLICA DROP: {state.last_replica_count} -> {replica_count}")
-                            state.last_replica_count = replica_count
+                                # Require the drop to persist across consecutive checks — a replica
+                                # that briefly disconnects during normal maintenance/failover should
+                                # not fire a red alert. Hold the baseline while the drop is pending so
+                                # the next check compares against the pre-drop count.
+                                state.replica_drop_confirm += 1
+                                if state.replica_drop_confirm >= 2:
+                                    alert_key = "ha_replica_drop"
+                                    last_alert = state.last_alerts.get(alert_key, 0)
+                                    cooldown = ALERT_COOLDOWNS.get("ha_replica_drop", 3600)
+                                    if ((current_time - last_alert) >= cooldown
+                                            and send_alert("ha_replica_drop", create_ha_replica_embed(state.last_replica_count, replica_count), state)):
+                                        state.last_alerts[alert_key] = current_time
+                                        logger.warning(f"HA REPLICA DROP: {state.last_replica_count} -> {replica_count} (confirmed)")
+                                        state.replica_drop_confirm = 0
+                                        state.last_replica_count = replica_count
+                                    # else: cooldown/suppressed — keep the baseline anchored at the pre-drop
+                                    # value and retry next check rather than silently absorbing the drop
+                                # else: drop pending — keep baseline at pre-drop value for next check
+                            else:
+                                # Count steady or increased — accept new level, clear pending drop.
+                                state.replica_drop_confirm = 0
+                                state.last_replica_count = replica_count
                         # ─── Patroni replication lag monitoring ───
                         # Check replication lag from the HA status endpoint
                         replay_lag = ha_status.get("replay_lag", ha_status.get("replication_lag_bytes", 0))
@@ -19782,7 +19944,10 @@ def monitor_loop(state):
                 # ═══════════════════════════════════════════════════════════════════════════
                 try:
                     current_workers = _infra_health.get_active_workers()
-                    if current_workers is not None and current_workers >= 0:
+                    # A reading of 0 is almost always a scrape gap or a stratum restart (workers
+                    # reconnecting), not a real outage — that surfaces via miner_offline alerts.
+                    # Skip it so it neither poisons the baseline nor fires a false drop.
+                    if current_workers is not None and current_workers > 0:
                         # Only update baseline when workers are in normal range (prevents baseline absorption)
                         if len(state.worker_count_baseline) >= 3:
                             current_avg = sum(state.worker_count_baseline) / len(state.worker_count_baseline)
@@ -19795,13 +19960,24 @@ def monitor_loop(state):
                         if len(state.worker_count_baseline) >= 3:
                             baseline_avg = sum(state.worker_count_baseline[:-1]) / len(state.worker_count_baseline[:-1])
                             if baseline_avg >= 3 and current_workers < baseline_avg * 0.5:
-                                alert_key = "worker_count_drop"
-                                last_alert = state.last_alerts.get(alert_key, 0)
-                                cooldown = ALERT_COOLDOWNS.get("worker_count_drop", 1800)
-                                if (current_time - last_alert) >= cooldown:
-                                    send_alert("worker_count_drop", create_worker_drop_embed(current_workers, baseline_avg), state)
-                                    state.last_alerts[alert_key] = current_time
-                                    logger.warning(f"WORKER DROP: {current_workers} vs baseline {baseline_avg:.0f}")
+                                # Require the drop to persist across consecutive checks — a stratum
+                                # restart briefly collapses the worker gauge while miners reconnect.
+                                state.worker_drop_confirm += 1
+                                if state.worker_drop_confirm >= 2:
+                                    alert_key = "worker_count_drop"
+                                    last_alert = state.last_alerts.get(alert_key, 0)
+                                    cooldown = ALERT_COOLDOWNS.get("worker_count_drop", 1800)
+                                    if (current_time - last_alert) >= cooldown:
+                                        send_alert("worker_count_drop", create_worker_drop_embed(current_workers, baseline_avg), state)
+                                        state.last_alerts[alert_key] = current_time
+                                        logger.warning(f"WORKER DROP: {current_workers} vs baseline {baseline_avg:.0f} (confirmed)")
+                                        state.worker_drop_confirm = 0
+                            else:
+                                state.worker_drop_confirm = 0  # recovered / normal — reset streak
+                    else:
+                        # Unreadable sample (0 / missing metric / scrape gap) — can't confirm a drop,
+                        # so break the streak rather than letting a gap count toward confirmation.
+                        state.worker_drop_confirm = 0
                 except Exception as e:
                     logger.debug(f"Worker count check error: {e}")
 
@@ -19885,13 +20061,25 @@ def monitor_loop(state):
                 try:
                     wal_writes = int(_infra_health.metrics.get("stratum_wal_write_errors_total", 0))
                     wal_commits = int(_infra_health.metrics.get("stratum_wal_commit_errors_total", 0))
-                    delta_writes = wal_writes - state.last_wal_write_errors
-                    delta_commits = wal_commits - state.last_wal_commit_errors
-                    if (delta_writes > 0 or delta_commits > 0) and state.wal_errors_initialized:
-                        send_alert("wal_errors", create_wal_errors_embed(wal_writes, wal_commits, delta_writes, delta_commits), state)
-                        logger.warning(f"WAL ERRORS: +{delta_writes} write, +{delta_commits} commit (total: {wal_writes}/{wal_commits})")
-                    state.last_wal_write_errors = wal_writes
-                    state.last_wal_commit_errors = wal_commits
+                    if wal_writes < state.last_wal_write_errors or wal_commits < state.last_wal_commit_errors:
+                        # Counters reset (stratum restart): re-baseline without alerting. Otherwise the
+                        # stale high-water mark would mask real WAL errors after the restart until the
+                        # counter climbed back past the old total (a silent false negative).
+                        state.last_wal_write_errors = wal_writes
+                        state.last_wal_commit_errors = wal_commits
+                    else:
+                        delta_writes = wal_writes - state.last_wal_write_errors
+                        delta_commits = wal_commits - state.last_wal_commit_errors
+                        if (delta_writes > 0 or delta_commits > 0) and state.wal_errors_initialized:
+                            alert_key = "wal_errors"
+                            last_alert = state.last_alerts.get(alert_key, 0)
+                            cooldown = ALERT_COOLDOWNS.get("wal_errors", 1800)
+                            if (current_time - last_alert) >= cooldown:
+                                send_alert("wal_errors", create_wal_errors_embed(wal_writes, wal_commits, delta_writes, delta_commits), state)
+                                state.last_alerts[alert_key] = current_time
+                                logger.warning(f"WAL ERRORS: +{delta_writes} write, +{delta_commits} commit (total: {wal_writes}/{wal_commits})")
+                        state.last_wal_write_errors = wal_writes
+                        state.last_wal_commit_errors = wal_commits
                     state.wal_errors_initialized = True
                 except Exception as e:
                     logger.debug(f"WAL error check error: {e}")
@@ -20053,8 +20241,17 @@ def monitor_loop(state):
                         if prev_balance is not None:
                             balance_change = current_balance - prev_balance
 
-                            # Payout received (balance increased)
-                            if balance_change > 0:
+                            # Payout received (meaningful balance increase). Sub-floor increases
+                            # are dust/rounding noise between the two balance sources, not a payout.
+                            if balance_change > PAYOUT_MIN_CHANGE and state.coin_wallet_drop_zeros.get(coin_sym, 0) > 0:
+                                # A drop was mid-confirmation and the balance came back up: this was a
+                                # transient low reading from a disagreeing source (prev_balance stayed
+                                # anchored while suppressed), NOT a real credit. Clear the pending drop
+                                # and accept the recovered balance without firing a phantom payout.
+                                state.coin_wallet_drop_zeros[coin_sym] = 0
+                                logger.info(f"Wallet drop self-resolved for {coin_sym}: transient low reading recovered (was {prev_balance}, now {current_balance}) — no payout alert")
+                            elif balance_change > PAYOUT_MIN_CHANGE:
+                                state.coin_wallet_drop_zeros[coin_sym] = 0  # a credit clears any pending drop streak
                                 was_deferred = state.coin_payout_deferred.get(coin_sym, False)
                                 embed = create_payout_received_embed(coin_sym, balance_change, current_balance, prices, deferred=was_deferred)
                                 alert_sent = send_alert("payout_received", embed, state)
@@ -20068,8 +20265,9 @@ def monitor_loop(state):
                                     state.coin_payout_deferred[coin_sym] = True
                                     logger.info(f"PAYOUT RECEIVED (alert deferred): {balance_change} {coin_sym} — payout completed but alert suppressed due to quiet hours, will retry after quiet hours end")
 
-                            # Missing payout check (no change for N days)
-                            elif balance_change == 0:
+                            # No meaningful change (within dust either direction) — missing payout check
+                            elif abs(balance_change) <= PAYOUT_MIN_CHANGE:
+                                state.coin_wallet_drop_zeros[coin_sym] = 0  # reset any pending drop streak
                                 if not state.coin_missing_payout_alerted.get(coin_sym, False):
                                     last_check = state.coin_wallet_last_check.get(coin_sym, 0)
                                     days_since_check_start = (current_time - last_check) / 86400
@@ -20085,27 +20283,33 @@ def monitor_loop(state):
                                                 logger.warning(f"MISSING PAYOUT: No {coin_sym} balance change in {int(days_since_check_start)} days")
 
                             else:
-                                # Balance decreased - alert if wallet drop detection enabled
+                                # Balance decreased meaningfully - alert if wallet drop detection enabled.
+                                # Require the drop to persist across consecutive checks before firing:
+                                # the node (scantxoutset) vs external-API sources, and partial UTXO
+                                # scans, can return a transient low reading that reverts next cycle, and
+                                # a false "possible theft" alert is panic-grade. A real drain persists,
+                                # so confirmation only delays a genuine alert by a couple cycles. While
+                                # suppressed, prev_balance stays anchored (balance not updated below), so
+                                # a sustained drop keeps incrementing the streak until it confirms.
                                 amount_dropped = abs(balance_change)
                                 wallet_drop_suppressed = False
-                                if CONFIG.get("wallet_drop_alert_enabled", True) and amount_dropped > 0.001:
-                                    consecutive_zeros = state.coin_wallet_drop_zeros.get(coin_sym, 0)
-                                    if current_balance == 0 and prev_balance > 0:
-                                        consecutive_zeros += 1
-                                        state.coin_wallet_drop_zeros[coin_sym] = consecutive_zeros
-                                        if consecutive_zeros < 3:
-                                            logger.info(f"Wallet balance returned 0 (was {prev_balance} {coin_sym}) — "
-                                                        f"confirmation {consecutive_zeros}/3, not alerting yet")
-                                            wallet_drop_suppressed = True
-                                        else:
-                                            logger.warning(f"Wallet balance confirmed 0 after 3 consecutive checks")
-                                            state.coin_wallet_drop_zeros[coin_sym] = 0
+                                if CONFIG.get("wallet_drop_alert_enabled", True):
+                                    drop_confirms = state.coin_wallet_drop_zeros.get(coin_sym, 0) + 1
+                                    state.coin_wallet_drop_zeros[coin_sym] = drop_confirms
+                                    if drop_confirms < WALLET_DROP_CONFIRM_READS:
+                                        logger.info(f"Wallet balance dropped (was {prev_balance} {coin_sym}, now {current_balance}) — "
+                                                    f"confirmation {drop_confirms}/{WALLET_DROP_CONFIRM_READS}, not alerting yet")
+                                        wallet_drop_suppressed = True
                                     else:
-                                        state.coin_wallet_drop_zeros[coin_sym] = 0
-                                    if not wallet_drop_suppressed:
                                         embed = create_wallet_drop_embed(coin_sym, amount_dropped, prev_balance, current_balance, prices)
-                                        send_alert("wallet_drop", embed, state)
-                                        logger.warning(f"WALLET DROP: {amount_dropped} {coin_sym} lost (was {prev_balance}, now {current_balance})")
+                                        if send_alert("wallet_drop", embed, state):
+                                            state.coin_wallet_drop_zeros[coin_sym] = 0
+                                            logger.warning(f"WALLET DROP: {amount_dropped} {coin_sym} lost (was {prev_balance}, now {current_balance}, confirmed {WALLET_DROP_CONFIRM_READS}x)")
+                                        else:
+                                            # Alert suppressed (cooldown / quiet hours / HA non-master) — keep
+                                            # the baseline anchored and retry next cycle rather than losing a
+                                            # theft-grade alert and advancing to the drained balance.
+                                            wallet_drop_suppressed = True
                                 if not wallet_drop_suppressed:
                                     state.coin_wallet_last_check[coin_sym] = current_time
                                     state.coin_missing_payout_alerted[coin_sym] = False
@@ -20363,9 +20567,27 @@ def monitor_loop(state):
                     # 15+ minutes after the kick was attempted.
                     if HEALTH_MONITORING_ENABLED and not is_esp32:
                         zombie = state.check_zombie_miner(name)
+                        # Gate miner-reported reject-rate zombies behind pool-side confirmation.
+                        # Internal HW rejects (BitAxe/Avalon cgminer counters) inflate the
+                        # self-reported reject rate far beyond what reaches the pool, so a healthy
+                        # miner can look like a 100%-reject zombie. Same cross-reference the
+                        # share-rejection-spike detector uses. The no_shares/pool_invisible paths
+                        # are real signals and are not gated.
+                        if zombie and zombie.get("status") == "zombie":
+                            _zpool_pct = compute_pool_side_reject_pct(_infra_health.metrics)
+                            if _zpool_pct is None or _zpool_pct < POOL_REJECT_CONFIRM_PCT:
+                                _zsupp_key = f"zombie_suppressed:{name}"
+                                if (current_time - state.last_alerts.get(_zsupp_key, 0)) >= 3600:
+                                    _zpool_str = f"{_zpool_pct:.1f}%" if _zpool_pct is not None else "unavailable"
+                                    logger.info(f"ZOMBIE suppressed: {sanitize_log_input(name)} {sanitize_log_input(zombie['reason'])} but pool-side reject is {_zpool_str} — HW rejects, not zombie [cross-ref working]")
+                                    state.last_alerts[_zsupp_key] = current_time
+                                zombie = None  # Healthy miner with inflated HW reject counts — suppress
                         if zombie and (time.time() - state.get_last_restart_time(name)) > 900 and uptimes.get(name, 0) > 900 and not in_startup_grace:
                             logger.warning(f"ZOMBIE: {sanitize_log_input(name)} - {sanitize_log_input(zombie['reason'])}")
                             send_alert("zombie_miner", create_zombie_embed(name, zombie), state, miner_name=name)
+                            # Chronic counting is throttled inside track_chronic_issue (once/hour
+                            # per miner), so tracking every detection cycle no longer over-counts —
+                            # and stays independent of the global zombie_miner send cooldown.
                             state.track_chronic_issue(name, "zombie_miner")
 
                             last_kick = state.zombie_kick_times.get(name, 0)
@@ -20689,7 +20911,7 @@ def monitor_loop(state):
             # One alert per "high odds episode": fires once when sustained, then stays silent
             # until odds drop below threshold and come back up. 6h report covers ongoing visibility.
             HIGH_ODDS_SUSTAIN = 3600    # Must be sustained for 1 hour (3600 seconds)
-            if not in_startup_grace:
+            if not in_startup_grace and CONFIG.get("high_odds_enabled", True):
                 # Build list: primary coin (data already fetched) + other enabled coins
                 _ho_coins = [(primary_coin, net_phs, odds)]
                 for _ho_cfg in get_enabled_coins():
@@ -20730,7 +20952,7 @@ def monitor_loop(state):
 
             # === NETWORK HASHRATE CRASH DETECTION ===
             # Alert if: 25%+ drop sustained for 2 hours
-            if not in_startup_grace:
+            if not in_startup_grace and CONFIG.get("hashrate_crash_enabled", True):
                 # Check for crash conditions first, then update baseline
                 # (baseline must NOT adapt during a crash or it self-resolves)
                 if state.network_baseline_phs is None:
@@ -20827,6 +21049,18 @@ def monitor_loop(state):
                     if fleet_ths >= state.expected_fleet_ths * 0.6:  # 60% of expected = recovered
                         state.pool_drop_alert_sent = False
 
+            # ── Pool-side cross-reference (suppress false offline) ──
+            # A miner whose HTTP API is unreachable is NOT offline if it's still in the pool's
+            # active stratum connections — it's mining fine; only its web API is down. Reclassify
+            # to online BEFORE group/alert/restart logic so none of them false-fire (or force a
+            # needless restart). Only flips on positive admin-API evidence; an unverifiable outage
+            # is left as offline so real outages are never masked.
+            if CONFIG.get("pool_admin_api_key", ""):
+                for _mn, _mst in list(miner_status.items()):
+                    if _mst == "offline" and is_miner_connected_to_pool(_mn, _miner_ip_lookup.get(_mn), worker_names):
+                        miner_status[_mn] = "online"
+                        logger.debug(f"OFFLINE suppressed: {sanitize_log_input(_mn)} unreachable via HTTP but connected to pool stratum")
+
             # ── Group-aware offline detection ──
             # When miners belong to multi-member groups, we defer individual alerts
             # by a grace window (GROUP_GRACE_MIN) so we can detect location-wide
@@ -20900,15 +21134,21 @@ def monitor_loop(state):
                     if mins >= MINER_OFFLINE_TH and name not in state.miner_offline_alert_sent:
                         # Skip if: (a) group alert ready and will fire below, (b) still in grace window,
                         # or (c) group alert already sent for this miner's group
+                        _offline_alerted = False
                         if name not in _group_ready_miners and name not in _group_defer_miners:
                             send_alert("miner_offline", create_miner_offline_embed(name, mins, miner_ip=_miner_ip_lookup.get(name)), state, miner_name=name)
                             state.miner_offline_alert_sent[name] = True
+                            _offline_alerted = True
                         elif name in _group_ready_miners:
                             # Will be covered by group alert below — mark as sent without alerting
                             state.miner_offline_alert_sent[name] = True
+                            _offline_alerted = True
                         # else: in grace window — don't mark as sent yet, check again next cycle
-                        state.track_chronic_issue(name, "miner_offline")  # Always track for chronic detection
-                        state.weekly_stats["offline_events"] += 1
+                        # Track once per offline episode (when we mark it sent), not every grace cycle,
+                        # so a single outage doesn't inflate the chronic counter / weekly stats.
+                        if _offline_alerted:
+                            state.track_chronic_issue(name, "miner_offline")
+                            state.weekly_stats["offline_events"] += 1
                     # Auto-restart (only if health monitoring enabled)
                     if HEALTH_MONITORING_ENABLED and AUTO_RESTART and mins >= AUTO_RESTART_MIN and (time.time() - state.get_last_restart_time(name)) > AUTO_RESTART_COOL and not in_startup_grace:
                         logger.warning(f"OFFLINE RESTART: {sanitize_log_input(name)}")
@@ -21023,6 +21263,8 @@ def monitor_loop(state):
                             continue
                         td = temps.get(n, {})
                         ct = td.get("chip", td.get("board", 0))
+                        if ct > TEMP_SANITY_MAX:
+                            continue  # Implausible reading (sensor glitch) — don't let it trip a group alert
                         if ct >= TEMP_CRIT and n not in state.temp_alert_sent:
                             _group_temp_critical.setdefault(_gname, {})[n] = ct
                         elif ct >= TEMP_WARN and n not in state.temp_alert_sent:
@@ -21058,6 +21300,13 @@ def monitor_loop(state):
                 if is_avalon_miner(name):
                     continue
                 ct = td.get("chip", td.get("board", 0))
+                # Ignore physically-impossible readings (sensor glitch / parse error). A single
+                # garbage spike must never trigger an emergency stop or a thermal alert on a
+                # healthy miner. Normal-low readings (<= ceiling) still flow through, including
+                # the recovery/clear branch below.
+                if ct > TEMP_SANITY_MAX:
+                    logger.debug(f"Ignoring implausible temp for {sanitize_log_input(name)}: {ct}°C (> {TEMP_SANITY_MAX}°C sanity max, sensor glitch?)")
+                    continue
                 miner_ip = _miner_ip_lookup.get(name)
                 miner_type = _miner_type_lookup.get(name, "unknown")
                 is_axeos = miner_type in ["axeos", "bitaxe", "nmaxe", "nerdaxe", "nerdqaxe", "nerdoctaxe", "qaxe", "qaxeplus", "hammer", "esp32miner", "luckyminer", "jingleminer", "zyber"]
@@ -21118,16 +21367,22 @@ def monitor_loop(state):
                     # Only alert if any fan is at 0 RPM and chip temp > 40°C (miner is actually running)
                     has_dead_fan = any(rpm == 0 for rpm in fan_speeds)
                     if has_dead_fan and chip_temp > 40 and name not in state.fan_alert_sent:
-                        alert_key = f"fan_failure:{name}"
-                        last_alert = state.last_alerts.get(alert_key, 0)
-                        cooldown = ALERT_COOLDOWNS.get("fan_failure", 1800)
-                        if (current_time - last_alert) >= cooldown:
-                            send_alert("fan_failure", create_fan_failure_embed(name, fan_speeds, chip_temp), state, miner_name=name)
-                            state.last_alerts[alert_key] = current_time
-                            state.fan_alert_sent[name] = True
-                            logger.warning(f"FAN FAILURE: {sanitize_log_input(name)} fans={fan_speeds} chip={chip_temp}°C")
+                        # Require the dead-fan condition to persist before alerting — a single
+                        # transient 0-RPM sample during the miner's own fan ramp is not a failure.
+                        if name not in state.fan_dead_since:
+                            state.fan_dead_since[name] = current_time
+                        elif (current_time - state.fan_dead_since[name]) >= FAN_FAILURE_SUSTAINED_SEC:
+                            alert_key = f"fan_failure:{name}"
+                            last_alert = state.last_alerts.get(alert_key, 0)
+                            cooldown = ALERT_COOLDOWNS.get("fan_failure", 1800)
+                            if (current_time - last_alert) >= cooldown:
+                                send_alert("fan_failure", create_fan_failure_embed(name, fan_speeds, chip_temp), state, miner_name=name)
+                                state.last_alerts[alert_key] = current_time
+                                state.fan_alert_sent[name] = True
+                                logger.warning(f"FAN FAILURE: {sanitize_log_input(name)} fans={fan_speeds} chip={chip_temp}°C")
                     elif not has_dead_fan:
                         state.fan_alert_sent.pop(name, None)
+                        state.fan_dead_since.pop(name, None)  # reset streak on recovery
 
             # ═══════════════════════════════════════════════════════════════════════════════
             # STRATUM URL MISMATCH - Security alert for firmware hijack detection
@@ -21180,15 +21435,21 @@ def monitor_loop(state):
                     active_chains = [i for i, hr in enumerate(chains) if hr > 0]
                     dead_chains = [i for i, hr in enumerate(chains) if hr == 0]
                     if dead_chains and active_chains and name not in state.hashboard_alert_sent:
-                        alert_key = f"hashboard_dead:{name}"
-                        last_alert = state.last_alerts.get(alert_key, 0)
-                        cooldown = ALERT_COOLDOWNS.get("hashboard_dead", 3600)
-                        if (current_time - last_alert) >= cooldown:
-                            send_alert("hashboard_dead", create_hashboard_dead_embed(name, chains, dead_chains), state, miner_name=name)
-                            state.last_alerts[alert_key] = current_time
-                            state.hashboard_alert_sent[name] = True
-                            logger.warning(f"HASHBOARD DEAD: {sanitize_log_input(name)} chains={chains} dead={dead_chains}")
+                        # Require the dead-chain condition to persist before alerting — a single
+                        # cycle where one chain reads 0 (board re-init / job transition) is transient.
+                        if name not in state.hashboard_dead_since:
+                            state.hashboard_dead_since[name] = current_time
+                        elif (current_time - state.hashboard_dead_since[name]) >= HASHBOARD_DEAD_SUSTAINED_SEC:
+                            alert_key = f"hashboard_dead:{name}"
+                            last_alert = state.last_alerts.get(alert_key, 0)
+                            cooldown = ALERT_COOLDOWNS.get("hashboard_dead", 3600)
+                            if (current_time - last_alert) >= cooldown:
+                                send_alert("hashboard_dead", create_hashboard_dead_embed(name, chains, dead_chains), state, miner_name=name)
+                                state.last_alerts[alert_key] = current_time
+                                state.hashboard_alert_sent[name] = True
+                                logger.warning(f"HASHBOARD DEAD: {sanitize_log_input(name)} chains={chains} dead={dead_chains}")
                     elif not dead_chains:
+                        state.hashboard_dead_since.pop(name, None)  # reset streak when all chains alive
                         state.hashboard_alert_sent.pop(name, None)
 
             # ═══════════════════════════════════════════════════════════════════════════════
@@ -21243,7 +21504,7 @@ def monitor_loop(state):
                     last = state.miner_last_uptime.get(name, uptime)
                     if name not in state.miner_last_uptime and uptime < 300:
                         state.record_miner_restart(name)  # Use new list-based tracking
-                    if uptime < last and last > 300:
+                    if uptime < last and last > 300 and (last - uptime) > UPTIME_REBOOT_MIN_DROP_SEC:
                         state.record_blip(name)
                         blips_this_cycle.append(name)
                         blip_details[name] = {"old": last, "new": uptime}
@@ -21342,7 +21603,11 @@ def monitor_loop(state):
                                 break
 
                         if pool_worker:
-                            pool_hr = pool_stats[pool_worker].get("hashrate", 0)
+                            pool_hr_raw = pool_stats[pool_worker].get("hashrate", 0)
+                            # Pool API reports hashrate in H/s; miner hr_ghs is GH/s. Convert to GH/s
+                            # (same heuristic as the aggregate path below). Without this, the ratio is
+                            # ~1e9x off and divergence is NEVER detected — a silent false negative.
+                            pool_hr = pool_hr_raw / 1e9 if pool_hr_raw > 1e6 else pool_hr_raw
                         else:
                             # Can't match miner to pool - skip divergence tracking to avoid false alerts
                             continue

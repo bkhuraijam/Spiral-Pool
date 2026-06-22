@@ -121,8 +121,6 @@ type ShareResult struct {
 	Accepted  bool
 	IsBlock   bool
 	BlockHash string
-        BlockShareDiff   float64 // <-- ADD THIS
-
 	Error     error
 }
 
