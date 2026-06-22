@@ -73,7 +73,7 @@ head -c50 "$0"|od -c|grep -q '\\r'&&{ find "$(dirname "$0")" -type f \( -name "*
 #   2. Create a wallet address for the new coin BEFORE starting mining
 #
 #   For wallet addresses:
-#   - Coins with CLI support (DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, FBTC, QBX):
+#   - Coins with CLI support (DGB, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, FBTC):
 #     Run: spiralpool-wallet --coin <symbol>
 #
 #   - Coins with limited CLI support (NMC, SYS, XMY, PEP, CAT):
@@ -790,7 +790,7 @@ _recover_salvagewallet() {
     local svc_map=(
         [dgb]="digibyted" [btc]="bitcoind" [bch]="bitcoind-bch" [bch2]="bitcoincashIId"
         [bc2]="bitcoiniid" [btcs]="bitcoinsilverd" [nmc]="namecoind" [sys]="syscoind"
-        [xmy]="myriadcoind" [fbtc]="fractald" [qbx]="qbitx" [ltc]="litecoind"
+        [xmy]="myriadcoind" [fbtc]="fractald" [ltc]="litecoind"
         [doge]="dogecoind" [pep]="pepecoind" [xec]="ecashd"
     )
     local daemon="${svc_map[$cn]:-}"
@@ -848,7 +848,7 @@ repair_wallet_backups() {
                 litecoin)        cur="LTC"  ;; dogecoin)      cur="DOGE" ;;
                 pepecoin)        cur="PEP"  ;; catcoin)       cur="CAT"  ;;
                 digibyte-scrypt) cur="DGB"  ;; ecash|xec)     cur="XEC"  ;;
-                qbitx)           cur="QBX"  ;; *)             cur="${BASH_REMATCH[1]}" ;;
+                *)             cur="${BASH_REMATCH[1]}" ;;
             esac
         elif [[ "$line" =~ ^[[:space:]]*address:[[:space:]]*\"?([^\"[:space:]]+)\"? ]] && [[ -n "$cur" ]]; then
             local addr="${BASH_REMATCH[1]}"
@@ -857,7 +857,7 @@ repair_wallet_backups() {
                 dgb|dgb-scrypt) cn="dgb" ;; btc) cn="btc" ;; bch) cn="bch" ;;
                 bch2) cn="bch2" ;; bc2) cn="bc2" ;; btcs) cn="btcs" ;;
                 nmc) cn="nmc"   ;; sys) cn="sys" ;; xmy) cn="xmy"   ;;
-                fbtc) cn="fbtc" ;; qbx) cn="qbx" ;; ltc) cn="ltc"   ;;
+                fbtc) cn="fbtc" ;; ltc) cn="ltc"   ;;
                 doge) cn="doge" ;; pep) cn="pep" ;; xec) cn="xec"   ;;
                 cat) cn="cat"   ;;
             esac
@@ -908,7 +908,7 @@ repair_wallet_backups() {
         [dgb]="digibyted"       [btc]="bitcoind"         [bch]="bitcoind-bch"
         [bch2]="bitcoincashIId" [bc2]="bitcoiniid"       [btcs]="bitcoinsilverd"
         [nmc]="namecoind"       [sys]="syscoind"         [xmy]="myriadcoind"
-        [fbtc]="fractald"       [qbx]="qbitx"            [ltc]="litecoind"
+        [fbtc]="fractald"       [ltc]="litecoind"
         [doge]="dogecoind"      [pep]="pepecoind"        [xec]="ecashd"
     )
 
@@ -924,7 +924,6 @@ repair_wallet_backups() {
         [sys]="syscoin-cli -conf=$INSTALL_DIR/sys/syscoin.conf -rpcwallet=pool-sys"
         [xmy]="myriadcoin-cli -conf=$INSTALL_DIR/xmy/myriadcoin.conf -rpcwallet=pool-xmy"
         [fbtc]="fractal-cli -conf=$INSTALL_DIR/fbtc/fractal.conf -rpcwallet=pool-fbtc"
-        [qbx]="qbitx-cli -conf=$INSTALL_DIR/qbx/qbitx.conf -rpcwallet=pool-qbx"
         [ltc]="litecoin-cli -conf=$INSTALL_DIR/ltc/litecoin.conf -rpcwallet=pool-ltc"
         [doge]="dogecoin-cli -conf=$INSTALL_DIR/doge/dogecoin.conf -rpcwallet=pool-doge"
         [pep]="pepecoin-cli -conf=$INSTALL_DIR/pep/pepecoin.conf -rpcwallet=pool-pep"
@@ -1030,8 +1029,14 @@ repair_wallet_backups() {
                                 read -r _wbr_ack < /dev/tty
                                 echo ""
                             fi
-                            # Still create the marker — no point prompting again if recovery is impossible
-                            sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+                            # Mark confirmed only in interactive mode (operator acknowledged above).
+                            # In --auto, leave it unconfirmed so a future run retries — never
+                            # silently suppress backups for a wallet whose recovery just failed.
+                            if [[ "$AUTO_MODE" != "true" ]]; then
+                                sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+                            else
+                                log_warn "${cn^^} wallet recovery failed in --auto mode — left unconfirmed so a future run retries it"
+                            fi
                             continue
                         fi
                     else
@@ -1039,7 +1044,11 @@ repair_wallet_backups() {
                         echo -e "  ${RED}✗ wallet.dat not found at ${wallets_dir}${NC}"
                         echo -e "  ${YELLOW}The wallet may not have been generated yet, or the path has changed.${NC}"
                         echo ""
-                        sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+                        if [[ "$AUTO_MODE" != "true" ]]; then
+                            sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+                        else
+                            log_warn "${cn^^} wallet.dat not found in --auto mode — left unconfirmed so a future run retries it"
+                        fi
                         continue
                     fi
                 fi
@@ -1071,7 +1080,14 @@ repair_wallet_backups() {
             echo ""
         fi
 
-        sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+        # Mark confirmed in interactive mode (operator acknowledged), or in --auto
+        # ONLY when the backup actually succeeded. Never silently confirm a failed/
+        # skipped backup in --auto — that would permanently disable future attempts.
+        if [[ "$AUTO_MODE" != "true" || "$dump_ok" == "true" ]]; then
+            sudo -u "$POOL_USER" touch "${backup_base}/.backup-confirmed-${cn}" 2>/dev/null || true
+        else
+            log_warn "${cn^^} wallet backup not completed in --auto mode — left unconfirmed so a future run retries it"
+        fi
     done
 
     log_success "Wallet backup phase complete — upgrade continuing"
@@ -1131,7 +1147,6 @@ create_backup() {
     [[ -f "$(resolve_coin_dir sys)/syscoin.conf" ]] && cp "$(resolve_coin_dir sys)/syscoin.conf" "${BACKUP_PATH}/syscoin.conf" && log_info "  - syscoin.conf backed up"
     [[ -f "$(resolve_coin_dir xmy)/myriadcoin.conf" ]] && cp "$(resolve_coin_dir xmy)/myriadcoin.conf" "${BACKUP_PATH}/myriadcoin.conf" && log_info "  - myriadcoin.conf backed up"
     [[ -f "$(resolve_coin_dir fbtc)/fractal.conf" ]] && cp "$(resolve_coin_dir fbtc)/fractal.conf" "${BACKUP_PATH}/fractal.conf" && log_info "  - fractal.conf backed up"
-    [[ -f "$(resolve_coin_dir qbx)/qbitx.conf" ]] && cp "$(resolve_coin_dir qbx)/qbitx.conf" "${BACKUP_PATH}/qbitx.conf" && log_info "  - qbitx.conf backed up"
     [[ -f "$(resolve_coin_dir xec)/bitcoin.conf" ]] && cp "$(resolve_coin_dir xec)/bitcoin.conf" "${BACKUP_PATH}/ecash.conf" && log_info "  - ecash.conf backed up"
     # Legacy location (older installs may have config here)
     [[ -f "${INSTALL_DIR}/config/digibyte.conf" ]] && [[ ! -L "${INSTALL_DIR}/config/digibyte.conf" ]] && \
@@ -1572,14 +1587,6 @@ rollback_to_backup() {
         chown "${POOL_USER}:${POOL_USER}" "$_rd/fractal.conf"
         chmod 600 "$_rd/fractal.conf"
     fi
-    if [[ -f "$backup_path/qbitx.conf" ]]; then
-        local _rd; _rd=$(resolve_coin_dir qbx)
-        log_info "Restoring qbitx.conf..."
-        mkdir -p "$_rd"
-        cp "$backup_path/qbitx.conf" "$_rd/qbitx.conf"
-        chown "${POOL_USER}:${POOL_USER}" "$_rd/qbitx.conf"
-        chmod 600 "$_rd/qbitx.conf"
-    fi
     if [[ -f "$backup_path/ecash.conf" ]]; then
         local _rd; _rd=$(resolve_coin_dir xec)
         log_info "Restoring ecash.conf (bitcoin.conf)..."
@@ -1813,6 +1820,193 @@ clear_alert_suppression() {
 # Service Management
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# System component currency (PostgreSQL, Redis) — the automatic "no old/vulnerable
+# versions" layer. MINOR/patch upgrades are applied in place (security currency, no
+# data-format change). A PostgreSQL MAJOR jump is migrated by _upgrade_postgres_major()
+# via Debian's pg_upgradecluster (logical dump→restore), keeping the OLD cluster intact
+# until the new one verifies. Runs in the modification phase: pool consumers are stopped
+# but PostgreSQL is still up. Never fatal to the overall upgrade.
+upgrade_system_components() {
+    # HA/Patroni: when PostgreSQL is managed by Patroni (not the Debian postgresql
+    # service), it MUST NOT be touched by pg_upgradecluster/apt here — that breaks
+    # replication and the DCS-managed cluster. Major upgrades in HA require Patroni's
+    # coordinated rolling-upgrade procedure. Skip the whole component-upgrade step.
+    if systemctl is-enabled --quiet patroni 2>/dev/null || systemctl is-active --quiet patroni 2>/dev/null; then
+        log_info "HA/Patroni detected — skipping automatic PostgreSQL/Redis upgrades (use the Patroni rolling-upgrade procedure)."
+        return 0
+    fi
+
+    local pg_required pg_installed pg_installed_major
+    pg_required=$(grep -oP '^POSTGRES_VERSION="\K[^"]+' "$PROJECT_ROOT/install.sh" 2>/dev/null | head -1)
+
+    log_info "Checking system component versions (PostgreSQL, Redis)..."
+    apt-get update -qq >/dev/null 2>&1 || true
+
+    if command -v psql >/dev/null 2>&1; then
+        pg_installed=$(sudo -u postgres psql -tAc "SHOW server_version_num;" 2>/dev/null | tr -d ' ')
+        [[ -n "$pg_installed" ]] && pg_installed_major=$(( pg_installed / 10000 ))
+        if [[ -n "$pg_required" && -n "$pg_installed_major" ]]; then
+            if [[ "$pg_installed_major" -lt "$pg_required" ]]; then
+                log_warn "PostgreSQL major ${pg_installed_major} is behind required ${pg_required} — migrating database (dump→restore)..."
+                _upgrade_postgres_major "$pg_installed_major" "$pg_required" \
+                    || log_error "PostgreSQL major upgrade not completed — pool left on PostgreSQL ${pg_installed_major} (data safe)."
+            else
+                if apt-get install -y -qq --only-upgrade "postgresql-${pg_installed_major}" "postgresql-contrib-${pg_installed_major}" >/dev/null 2>&1; then
+                    log_info "  - PostgreSQL ${pg_installed_major}.x patched to latest available"
+                fi
+            fi
+        fi
+    fi
+
+    if dpkg -s redis-server >/dev/null 2>&1; then
+        if apt-get install -y -qq --only-upgrade redis-server >/dev/null 2>&1; then
+            log_info "  - Redis patched to latest available"
+        fi
+    fi
+    return 0
+}
+
+# Bring the OLD PostgreSQL cluster back as the live one on its original port after a
+# failed/aborted major migration: drop the half-migrated new cluster, force the old
+# cluster's port back, start it, and health-gate with pg_isready. Returns non-zero
+# (loudly) only if the DB truly could not be restored — i.e. manual recovery needed.
+_pg_revert_to_old() {
+    local old_major="$1" new_major="$2" old_port="$3" i
+    # Make sure the (possibly partial) new cluster is fully stopped + removed so it
+    # releases the port — otherwise an empty new cluster could keep answering on it.
+    pg_dropcluster "$new_major" main --stop >/dev/null 2>&1 || true
+    pg_ctlcluster "$new_major" main stop >/dev/null 2>&1 || true
+    pg_conftool "$old_major" main set port "$old_port" >/dev/null 2>&1 || true
+    pg_ctlcluster "$old_major" main start >/dev/null 2>&1 || true
+    for i in 1 2 3 4 5; do
+        # Require BOTH readiness AND that the OLD cluster (not a leftover new one) is the
+        # one online on old_port — never report success against an empty new cluster.
+        if pg_isready -p "$old_port" -q >/dev/null 2>&1 \
+           && pg_lsclusters -h 2>/dev/null | awk -v v="$old_major" -v p="$old_port" '$1==v && $2=="main" && $3==p && $4=="online"{ok=1} END{exit ok?0:1}'; then
+            log_info "  Reverted: PostgreSQL ${old_major} is live again on port ${old_port}."
+            return 0
+        fi
+        sleep 2
+    done
+    log_error "  CRITICAL: PostgreSQL ${old_major} did not come back on port ${old_port}."
+    log_error "  Manual recovery: sudo pg_ctlcluster ${old_major} main start  (data is intact in the old cluster)"
+    return 1
+}
+
+# Migrate PostgreSQL across a MAJOR version using Debian's pg_upgradecluster (logical
+# dump→restore). Safety nets: (1) an independent verified pg_dump is taken first;
+# (2) pg_upgradecluster keeps the OLD cluster intact (only stopped); (3) on ANY failure
+# the old cluster is restarted on its port and the new one is dropped, so the pool keeps
+# running on the old major. Returns 0 only on verified success.
+_upgrade_postgres_major() {
+    local old_major="$1" new_major="$2"
+    local db="spiralstratum"
+
+    if ! command -v pg_upgradecluster >/dev/null 2>&1 || ! command -v pg_lsclusters >/dev/null 2>&1; then
+        log_error "  postgresql-common (pg_upgradecluster) not found — skipping major upgrade."
+        return 1
+    fi
+    if ! pg_lsclusters -h 2>/dev/null | awk '{print $1}' | grep -qx "$old_major"; then
+        log_error "  PostgreSQL ${old_major} cluster not found — skipping major upgrade."
+        return 1
+    fi
+    local old_port
+    old_port=$(pg_lsclusters -h 2>/dev/null | awk -v v="$old_major" '$1==v && $2=="main"{print $3; exit}')
+    [[ -z "$old_port" ]] && { log_error "  Could not determine PostgreSQL ${old_major} port — skipping."; return 1; }
+
+    # Disk space: need ~2x DB size (+512MB) free on the cluster data partition, and ~1x
+    # DB size where the pre-migration dump is written ($INSTALL_DIR may be a different mount).
+    local db_kb free_kb dump_free_kb
+    db_kb=$(sudo -u postgres psql -tAc "SELECT pg_database_size('${db}')/1024;" 2>/dev/null | tr -d ' ')
+    free_kb=$(df -Pk /var/lib/postgresql 2>/dev/null | awk 'NR==2{print $4}')
+    dump_free_kb=$(df -Pk "$INSTALL_DIR" 2>/dev/null | awk 'NR==2{print $4}')
+    if [[ -n "$db_kb" && -n "$free_kb" ]] && (( free_kb < db_kb * 2 + 524288 )); then
+        log_error "  Insufficient free space on the PostgreSQL data partition (need ~2x DB size) — skipping, DB untouched."
+        return 1
+    fi
+    if [[ -n "$db_kb" && -n "$dump_free_kb" ]] && (( dump_free_kb < db_kb + 262144 )); then
+        log_error "  Insufficient free space in ${INSTALL_DIR} for the pre-migration dump (need ~1x DB size) — skipping, DB untouched."
+        return 1
+    fi
+
+    # Safety net #1: independent verified logical dump (+ roles)
+    local dump="${INSTALL_DIR}/backups/pg-premajor-${old_major}-to-${new_major}.sql"
+    mkdir -p "${INSTALL_DIR}/backups" 2>/dev/null || true
+    log_info "  Taking a verified pre-migration dump..."
+    if ! sudo -u postgres pg_dump "$db" > "$dump" 2>/dev/null \
+        || ! tail -5 "$dump" 2>/dev/null | grep -q "PostgreSQL database dump complete"; then
+        log_error "  Pre-migration dump failed/incomplete — aborting, DB untouched."
+        rm -f "$dump" 2>/dev/null || true
+        return 1
+    fi
+    sudo -u postgres pg_dumpall --roles-only > "${dump}.roles" 2>/dev/null || true
+    gzip -f "$dump" 2>/dev/null || true
+    log_success "  Pre-migration dump saved: ${dump}.gz"
+
+    # Install the new major (apt auto-creates an empty new cluster on a free port)
+    log_info "  Installing PostgreSQL ${new_major} packages..."
+    if ! apt-get install -y -qq "postgresql-${new_major}" "postgresql-contrib-${new_major}" >/dev/null 2>&1; then
+        log_error "  Failed to install postgresql-${new_major} — aborting, DB untouched on ${old_major}."
+        return 1
+    fi
+    # Drop the empty auto-created new cluster so pg_upgradecluster builds it from old.
+    # SAFETY: never drop a new-major cluster already serving the live port — that means
+    # a prior migration already succeeded and dropping it would destroy the live DB.
+    local _new_port
+    _new_port=$(pg_lsclusters -h 2>/dev/null | awk -v v="$new_major" '$1==v && $2=="main"{print $3; exit}')
+    if [[ -n "$_new_port" ]]; then
+        if [[ "$_new_port" == "$old_port" ]]; then
+            log_error "  PostgreSQL ${new_major} already serves port ${old_port} — migration appears already done; aborting to avoid data loss."
+            return 1
+        fi
+        pg_dropcluster "$new_major" main --stop >/dev/null 2>&1 || true
+    fi
+
+    # Capture the source table count (old cluster still live on old_port) to detect a
+    # partial restore during verification below.
+    local old_tbl_count
+    old_tbl_count=$(sudo -u postgres psql -p "$old_port" -d "$db" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ')
+
+    # Migrate old → new (logical dump method). New cluster takes old's port; old kept, stopped.
+    log_info "  Migrating cluster ${old_major} → ${new_major} (can take a while on large DBs)..."
+    if ! pg_upgradecluster -m dump "$old_major" main >/dev/null 2>&1; then
+        log_error "  pg_upgradecluster failed — reverting to PostgreSQL ${old_major}."
+        _pg_revert_to_old "$old_major" "$new_major" "$old_port"
+        return 1
+    fi
+
+    # Verify the new cluster: on the old port, accepting connections, DB has tables, AND
+    # the app role can actually authenticate over TCP (catches a pg_hba/scram auth break
+    # a postgres-peer check would miss). Any failure → revert to the intact old cluster.
+    local new_port tbl_count verify_ok="true" _dbpass
+    new_port=$(pg_lsclusters -h 2>/dev/null | awk -v v="$new_major" '$1==v && $2=="main"{print $3; exit}')
+    [[ "$new_port" != "$old_port" ]] && verify_ok="false"
+    pg_isready -p "${new_port:-$old_port}" -q >/dev/null 2>&1 || verify_ok="false"
+    tbl_count=$(sudo -u postgres psql -p "${new_port:-$old_port}" -d "$db" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ')
+    if [[ -z "$tbl_count" || "$tbl_count" -lt 1 ]]; then verify_ok="false"; fi
+    # Partial-restore guard: the migrated DB must have at least as many tables as the source.
+    if [[ -n "$old_tbl_count" && "$old_tbl_count" -gt 0 && -n "$tbl_count" ]] && (( tbl_count < old_tbl_count )); then
+        verify_ok="false"; log_error "  Migrated DB has ${tbl_count} tables vs ${old_tbl_count} in the source — restore looks incomplete."
+    fi
+    _dbpass=$(awk '/^database:/{f=1;next} f && /^[^ #]/{f=0} f && /password:/' "$INSTALL_DIR/config/config.yaml" 2>/dev/null | grep -oP 'password:\s*"?\K[^"[:space:]]+' | head -1)
+    if [[ -n "$_dbpass" ]]; then
+        PGPASSWORD="$_dbpass" psql -h 127.0.0.1 -p "${new_port:-$old_port}" -U spiralstratum -d "$db" -tAc 'SELECT 1' >/dev/null 2>&1 \
+            || { verify_ok="false"; log_error "  App role 'spiralstratum' cannot authenticate on the migrated cluster."; }
+    else
+        log_warn "  Could not read DB password from config — app-credential auth check SKIPPED (relied on readiness + table counts)."
+    fi
+    if [[ "$verify_ok" != "true" ]]; then
+        log_error "  Verification failed — reverting to PostgreSQL ${old_major}."
+        _pg_revert_to_old "$old_major" "$new_major" "$old_port"
+        return 1
+    fi
+
+    log_success "  PostgreSQL migrated ${old_major} → ${new_major} (${tbl_count} tables verified). Old cluster kept (stopped) for rollback."
+    log_info  "  After confirming pool health, remove the old cluster with: sudo pg_dropcluster ${old_major} main"
+    return 0
+}
+
 stop_services() {
     log_info "Stopping Spiral Pool services gracefully..."
     suppress_sentinel_alerts 60 "Upgrade in progress"
@@ -1904,7 +2098,7 @@ start_services() {
     # This affects ALL services including blockchain daemons (bitcoind-bch, etc.)
     for svc_reset in spiralstratum spiraldash spiralsentinel spiralpool-health \
                      bitcoind bitcoind-bch bitcoincashIId bitcoiniid bitcoinsilverd digibyted litecoind dogecoind \
-                     pepecoind catcoind namecoind syscoind myriadcoind fractald qbitxd ecashd; do
+                     pepecoind catcoind namecoind syscoind myriadcoind fractald ecashd; do
         systemctl reset-failed "$svc_reset" 2>/dev/null || true
     done
 
@@ -2082,7 +2276,6 @@ fix_config_issues() {
                     SYS) coin_name="Syscoin" ;;
                     XMY) coin_name="Myriad" ;;
                     FBTC) coin_name="Fractal Bitcoin" ;;
-                    QBX) coin_name="Q-BitX" ;;
                     *) coin_name="${symbol//[^a-zA-Z0-9 _-]/}" ;;  # Sanitized symbol as fallback
                 esac
                 log_info "    - Adding missing 'name: ${coin_name}' after line ${line_num}"
@@ -2562,7 +2755,6 @@ cleanup_daemon_configs() {
         "sys:syscoin.conf"
         "xmy:myriadcoin.conf"
         "fbtc:fractal.conf"
-        "qbx:qbitx.conf"
         "xec:bitcoin.conf"
     )
 
@@ -2685,7 +2877,6 @@ rightsize_daemon_resources() {
         "xmy:myriadcoin.conf:2048"
         "fbtc:fractal.conf:2048"
         "doge:dogecoin.conf:4096"
-        "qbx:qbitx.conf:2048"
         "pep:pepecoin.conf:2048"
         "cat:catcoin.conf:2048"
         "xec:bitcoin.conf:4096"
@@ -2773,7 +2964,6 @@ fix_daemon_service_ownership_pre() {
         "fractald"
         "pepecoind"
         "catcoind"
-        "qbitxd"
         "ecashd"
     )
 
@@ -2840,7 +3030,6 @@ ensure_daemon_peer_config() {
         ["sys"]="syscoin.conf|addnode=158.220.107.184:8369 addnode=158.220.114.225:8369 addnode=165.232.103.216:8369 addnode=31.56.38.151:8369 addnode=31.56.38.197:8369 addnode=31.58.170.95:8369 addnode=143.20.33.149:8369 addnode=151.244.85.219:8369 addnode=176.9.210.20:8369 addnode=151.244.85.47:8369 addnode=159.65.195.168:8369 addnode=173.234.17.201:8369"
         ["xmy"]="myriadcoin.conf|addnode=54.37.139.32:10888 addnode=91.206.16.214:10888 addnode=199.241.187.130:10888 addnode=89.189.0.226:10888 addnode=85.15.179.171:10888 addnode=62.210.123.48:10888"
         ["fbtc"]="fractal.conf|addnode=5.9.118.219:8333 addnode=173.212.223.9:8333 addnode=49.51.68.155:8333 addnode=150.136.38.223:8333 addnode=3.124.82.188:8333"
-        ["qbx"]="qbitx.conf|addnode=89.110.93.248:8334 addnode=83.217.213.118:8334"
     )
 
     local TOTAL_ADDED=0
@@ -2871,13 +3060,6 @@ ensure_daemon_peer_config() {
             echo "fixedseeds=1" >> "$conf_path"
             added=$((added + 1))
             log_info "  - ${conf_name} (${coin_key}): added fixedseeds=1"
-        fi
-
-        # Ensure seednode for QBX (missing from original configs)
-        if [[ "$coin_key" == "qbx" ]] && ! grep -q "^seednode=seed.qbitx.org" "$conf_path" 2>/dev/null; then
-            echo "seednode=seed.qbitx.org" >> "$conf_path"
-            added=$((added + 1))
-            log_info "  - ${conf_name} (${coin_key}): added seednode=seed.qbitx.org"
         fi
 
         # Ensure addnode= entries (skip duplicates)
@@ -3194,7 +3376,8 @@ ASKPASSEOF
                 rm -rf "${TEMP_DIR}"
                 return 1
             fi
-            log_info "  - Main branch version verified: ${cloned_version}"
+            log_warn "  - Built from the 'main' branch: release tag v${TARGET_VERSION} was not found as a git tag."
+            log_warn "    VERSION matches (${cloned_version}), but 'main' may contain commits beyond the tagged release."
         else
             log_error "Downloaded source missing VERSION file — cannot verify source integrity"
             [[ -n "$CRED_DIR" ]] && rm -rf "$CRED_DIR" && CRED_DIR=""
@@ -3263,27 +3446,43 @@ build_stratum() {
     fi
 
     local GO_VER
-    GO_VER=$(go version 2>/dev/null | grep -oP '\d+\.\d+' | head -1) || true
+    GO_VER=$(go version 2>/dev/null | grep -oP 'go\K[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1) || true
     echo -e "${CYAN}Go version:${NC} $(go version 2>/dev/null || echo 'unknown')"
 
-    # Check Go version meets minimum requirement (1.26+ required by go.mod)
-    local GO_MAJOR="${GO_VER%%.*}"
-    local GO_MINOR="${GO_VER##*.}"
-    if [[ -z "$GO_MAJOR" || -z "$GO_MINOR" ]]; then
+    # Required Go version is read from install.sh (GO_VERSION) — the single source of
+    # truth, so a release that bumps Go automatically upgrades the toolchain here too.
+    # Upgrade in place only when the installed Go is OLDER (security patches + parity
+    # with what this release was built/tested against); a newer local Go is left alone.
+    local REQUIRED_GO
+    REQUIRED_GO=$(grep -oP '^GO_VERSION="\K[^"]+' "$PROJECT_ROOT/install.sh" 2>/dev/null | head -1)
+    [[ -z "$REQUIRED_GO" ]] && REQUIRED_GO="1.26.1"   # fallback: go.mod minimum
+    if [[ -z "$GO_VER" ]]; then
         log_warn "Could not determine Go version — proceeding with build"
-    elif [[ "$GO_MAJOR" -lt 1 ]] || { [[ "$GO_MAJOR" -eq 1 ]] && [[ "$GO_MINOR" -lt 26 ]]; }; then
-        log_warn "Go ${GO_VER} is below 1.26 (required by go.mod). Installing Go 1.26.1..."
-        local SYSTEM_ARCH_GO="amd64"
-        log_info "Downloading Go 1.26.1 (this may take a minute)..."
-        if curl -fSL --connect-timeout 15 --max-time 300 "https://go.dev/dl/go1.26.1.linux-${SYSTEM_ARCH_GO}.tar.gz" -o "/tmp/go1.26.1.linux-${SYSTEM_ARCH_GO}.tar.gz"; then
-            sudo rm -rf /usr/local/go
-            sudo tar -C /usr/local -xzf "/tmp/go1.26.1.linux-${SYSTEM_ARCH_GO}.tar.gz"
-            rm -f "/tmp/go1.26.1.linux-${SYSTEM_ARCH_GO}.tar.gz"
-            export PATH="/usr/local/go/bin:$PATH"
-            log_info "Go 1.26.1 installed successfully"
+    elif [[ "$(printf '%s\n%s\n' "$REQUIRED_GO" "$GO_VER" | sort -V | head -1)" != "$REQUIRED_GO" ]]; then
+        # installed Go (GO_VER) sorts below REQUIRED_GO → it is older → upgrade it
+        local arch_go; case "$(uname -m)" in aarch64|arm64) arch_go="arm64" ;; *) arch_go="amd64" ;; esac
+        log_warn "Go ${GO_VER} is older than required ${REQUIRED_GO} — upgrading Go toolchain..."
+        local _gotar="/tmp/go${REQUIRED_GO}.linux-${arch_go}.tar.gz"
+        if curl -fSL --connect-timeout 15 --max-time 300 "https://go.dev/dl/go${REQUIRED_GO}.linux-${arch_go}.tar.gz" -o "$_gotar"; then
+            # Extract+verify into a temp dir UNDER /usr/local (same filesystem) so the
+            # swap is a true atomic rename, and guard every step so a failure can never
+            # abort the upgrade with no Go (build_stratum runs under an active set -e).
+            local _gotmp; _gotmp=$(sudo mktemp -d /usr/local/.go-new.XXXXXX 2>/dev/null) || true
+            if [[ -n "$_gotmp" ]] && sudo tar -C "$_gotmp" -xzf "$_gotar" 2>/dev/null && [[ -x "$_gotmp/go/bin/go" ]]; then
+                if sudo rm -rf /usr/local/go && sudo mv "$_gotmp/go" /usr/local/go && [[ -x /usr/local/go/bin/go ]]; then
+                    export PATH="/usr/local/go/bin:$PATH"
+                    log_info "Go ${REQUIRED_GO} installed successfully"
+                else
+                    log_warn "Go ${REQUIRED_GO} swap failed — verify /usr/local/go (the build will surface any problem)"
+                fi
+            else
+                log_warn "Go ${REQUIRED_GO} extract/verify failed — keeping existing ${GO_VER}"
+            fi
+            [[ -n "$_gotmp" ]] && sudo rm -rf "$_gotmp" 2>/dev/null || true
+            rm -f "$_gotar"
         else
-            log_warn "Failed to download Go 1.26.1 — build may fail"
-            log_warn "Manual fix: sudo rm -rf /usr/local/go && curl -fSL https://go.dev/dl/go1.26.1.linux-${SYSTEM_ARCH_GO}.tar.gz | sudo tar -C /usr/local -xzf -"
+            log_warn "Failed to download Go ${REQUIRED_GO} — proceeding with existing ${GO_VER} (still builds if it meets the go.mod minimum)"
+            log_warn "Manual fix: sudo rm -rf /usr/local/go && curl -fSL https://go.dev/dl/go${REQUIRED_GO}.linux-${arch_go}.tar.gz | sudo tar -C /usr/local -xzf -"
         fi
     fi
 
@@ -3642,9 +3841,8 @@ $POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart pepecoind
 $POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart catcoind
 # Fractal Bitcoin (AuxPoW merge-mineable with BTC)
 $POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart fractald
-# Q-BitX
-$POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart qbitxd
-
+# eCash (Bitcoin ABC)
+$POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart ecashd
 # Log viewer - allow journalctl to read any service logs from dashboard
 # Dashboard validates service names against ALLOWED_SERVICES whitelist before invoking
 $POOL_USER ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
@@ -3802,6 +4000,22 @@ update_sentinel() {
     mkdir -p "$SENTINEL_FALLBACK_DIR" 2>/dev/null || true
     chown "$POOL_USER:$POOL_USER" "$SENTINEL_FALLBACK_DIR" 2>/dev/null || true
 
+    # Refresh sentinel Python deps when the sentinel runs from its own venv
+    # (XMPP setups use $INSTALL_DIR/sentinel-venv). Mirrors the dashboard dep
+    # refresh and keeps the venv's pinned deps (e.g. requests, used for price
+    # and webhook HTTP) current. Fails soft — a pip error keeps the existing venv.
+    # When the sentinel runs on system python3 (no XMPP venv), its deps come from
+    # the OS (apt python3-requests), patched by the OS, so nothing is done here.
+    if [[ -x "$INSTALL_DIR/sentinel-venv/bin/pip" ]] && [[ -f "$SENTINEL_SOURCE/requirements.txt" ]]; then
+        log_info "  - Refreshing sentinel Python dependencies (venv)..."
+        local _spip_out _spip_rc=0
+        _spip_out=$(sudo -u "$POOL_USER" "$INSTALL_DIR/sentinel-venv/bin/pip" install -q -r "$SENTINEL_SOURCE/requirements.txt" 2>&1) || _spip_rc=$?
+        if [[ $_spip_rc -ne 0 ]]; then
+            log_warn "  - Failed to refresh sentinel Python dependencies (kept existing):"
+            echo "$_spip_out" | tail -10 >&2
+        fi
+    fi
+
     # Fix service file for proper logging and environment (only with --update-services or --full)
     if $UPDATE_SERVICES; then
         local SENTINEL_SERVICE_FILE="/etc/systemd/system/${SENTINEL_SERVICE}.service"
@@ -3866,7 +4080,7 @@ update_systemd_services() {
     fi
 
     # Detect daemon type from config.yaml or existing service file
-    # Supports all coins: DGB, DGB-SCRYPT, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, PEP, CAT, NMC, SYS, XMY, FBTC, QBX, XEC
+    # Supports all coins: DGB, DGB-SCRYPT, BTC, BCH, BCH2, BC2, BTCS, LTC, DOGE, PEP, CAT, NMC, SYS, XMY, FBTC, XEC
     local DETECTED_DAEMON=""
 
     # First, try to detect from config.yaml (most reliable)
@@ -3887,7 +4101,6 @@ update_systemd_services() {
             syscoin) DETECTED_DAEMON="syscoind" ;;
             myriad|myriadcoin) DETECTED_DAEMON="myriadcoind" ;;
             fractal|fractalbitcoin|fractal-bitcoin) DETECTED_DAEMON="fractald" ;;
-            qbitx|q-bitx|qbitxcoin) DETECTED_DAEMON="qbitxd" ;;
             ecash|xec) DETECTED_DAEMON="ecashd" ;;
         esac
     fi
@@ -3922,14 +4135,12 @@ update_systemd_services() {
             DETECTED_DAEMON="fractald"
         elif grep -q "digibyted" "$SYSTEMD_DIR/${STRATUM_SERVICE}.service" 2>/dev/null; then
             DETECTED_DAEMON="digibyted"
-        elif grep -q "qbitxd" "$SYSTEMD_DIR/${STRATUM_SERVICE}.service" 2>/dev/null; then
-            DETECTED_DAEMON="qbitxd"
         fi
     fi
 
     # Ultimate fallback: check which daemon services exist
     if [[ -z "$DETECTED_DAEMON" ]]; then
-        for daemon in bitcoincashIId bitcoinsilverd bitcoiniid bitcoind-bch bitcoind litecoind dogecoind pepecoind catcoind namecoind syscoind myriadcoind fractald digibyted qbitxd; do
+        for daemon in bitcoincashIId bitcoinsilverd bitcoiniid bitcoind-bch bitcoind litecoind dogecoind pepecoind catcoind namecoind syscoind myriadcoind fractald digibyted; do
             if [[ -f "/etc/systemd/system/${daemon}.service" ]]; then
                 DETECTED_DAEMON="$daemon"
                 break
@@ -4330,7 +4541,7 @@ echo -e "${CYAN}             ░███${NC}"
 echo -e "${CYAN}             █████${NC}"
 echo -e "${CYAN}            ░░░░░${NC}"
 echo -e "                                 ${MAGENTA}Multi-Algorithm Solo Mining Pool${NC}"
-echo -e "                                     ${DIM}V2.5.0 - PHI HASH REACTOR${NC}"
+echo -e "                                     ${DIM}V2.5.3 - PHI HASH REACTOR${NC}"
 echo ""
 echo -e "  ${STATUS_COLOR}${STATUS_ICON}${NC} Stratum: ${STATUS_COLOR}${POOL_STATUS}${NC}    ${DASH_COLOR}${DASH_ICON}${NC} Dash: ${DASH_COLOR}${DASH_STATUS}${NC}    ${SENT_COLOR}${SENT_ICON}${NC} Sentinel: ${SENT_COLOR}${SENT_STATUS}${NC}"
 echo -e "    Uptime: ${GREEN}${UPTIME}${NC}    Load: ${GREEN}${LOAD}${NC}"
@@ -4351,7 +4562,7 @@ echo -e "    ${YELLOW}spiralctl test${NC}           Connectivity   ${YELLOW}spir
 echo -e "    ${CYAN}▶  spiralctl help${NC}          Full command reference"
 echo ""
 echo -e "${CYAN}━━━ SUPPORTED COINS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "    ${GREEN}SHA-256d${NC}: BTC  BCH  BCH2  BC2  BTCS  DGB  QBX   ${GREEN}Scrypt${NC}: LTC  DOGE  DGB-S  PEP  CAT"
+echo -e "    ${GREEN}SHA-256d${NC}: BTC  BCH  BCH2  BC2  BTCS  DGB  XEC   ${GREEN}Scrypt${NC}: LTC  DOGE  DGB-S  PEP  CAT"
 echo -e "    ${GREEN}AuxPoW${NC}:  BTC+NMC  BTC+FBTC  BTC+SYS  BTC+XMY  DGB+NMC  LTC+DOGE  LTC+PEP"
 echo ""
 echo -e "${CYAN}━━━ WEB INTERFACES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -4475,11 +4686,18 @@ migrate_daemon_sudoers() {
         changed=1
     fi
 
+    if ! grep -q "ecashd" "$DASH_SUDOERS" 2>/dev/null; then
+        echo "" >> "$DASH_SUDOERS"
+        echo "# XEC (eCash) daemon control (v2.5.3)" >> "$DASH_SUDOERS"
+        echo "$POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart ecashd" >> "$DASH_SUDOERS"
+        changed=1
+    fi
+
     if [[ $changed -eq 1 ]]; then
         if visudo -c -f "$DASH_SUDOERS" > /dev/null 2>&1; then
-            log_info "  - Added BCH2/BTCS daemon sudoers entries"
+            log_info "  - Added BCH2/BTCS/XEC daemon sudoers entries"
         else
-            log_warn "  - Sudoers syntax error after BCH2/BTCS daemon migration"
+            log_warn "  - Sudoers syntax error after BCH2/BTCS/XEC daemon migration"
         fi
     fi
 }
@@ -4630,7 +4848,7 @@ TMPEOF
 migrate_coin_version_cache() {
     # Seed /spiralpool/config/coin-versions/<COIN>.ver for all installed coins.
     # coin-upgrade.sh reads these files to display the installed version when a
-    # daemon's --version output does not include a version number (e.g. QBX).
+    # daemon's --version output does not include a version number.
     # Files are only written if the binary exists and the cache is not already set.
     #
     # IMPORTANT: When seeding, we try --version detection first, then fall back to
@@ -4640,7 +4858,7 @@ migrate_coin_version_cache() {
     mkdir -p "$vc_dir"
 
     # Previous version map — what v1.0 (BlackICE) shipped for each coin.
-    # Used as fallback when --version detection fails (e.g. QBX).
+    # Used as fallback when --version detection fails.
     declare -A _VC_PREV=(
         [DGB]="8.26.2"          [DGB-SCRYPT]="8.26.2"
         [BTC]="29.3.knots20260210"
@@ -4650,7 +4868,7 @@ migrate_coin_version_cache() {
         [PEP]="1.1.0"           [CAT]="2.1.1"
         [NMC]="28.0"            [SYS]="5.0.5"
         [XMY]="0.18.1.0"        [FBTC]="0.3.0"
-        [QBX]="0.1.0"
+        [XEC]="0.31.12"
     )
     # Daemon binary map — must match COIN_DAEMON_CMD in coin-upgrade.sh
     declare -A _VC_BIN=(
@@ -4661,7 +4879,7 @@ migrate_coin_version_cache() {
         [DOGE]="dogecoind"      [PEP]="pepecoind"
         [CAT]="catcoind"        [NMC]="namecoind"
         [SYS]="syscoind"        [XMY]="myriadcoind"
-        [FBTC]="fractald"       [QBX]="qbitx"
+        [FBTC]="fractald"       [XEC]="ecashd"
     )
 
     local coin ver_file bin_path detected_ver
@@ -4677,7 +4895,7 @@ migrate_coin_version_cache() {
         if [[ -n "$detected_ver" ]]; then
             echo "$detected_ver" > "$ver_file"
         else
-            # Fallback: use known previous version (e.g. QBX --version has no number)
+            # Fallback: use known previous version
             echo "${_VC_PREV[$coin]}" > "$ver_file"
         fi
     done
@@ -4928,6 +5146,7 @@ show_summary() {
 
     # Final status display
     local all_active=true
+    local any_failed=false
     for service in "$STRATUM_SERVICE" "$DASHBOARD_SERVICE" "$SENTINEL_SERVICE"; do
         # Skip services that weren't running before upgrade
         local was_running=false
@@ -4945,11 +5164,16 @@ show_summary() {
             active)       printf "  %-24s ${GREEN}%s${NC}\n" "$service" "Running" ;;
             activating)   printf "  %-24s ${CYAN}%s${NC}\n" "$service" "Starting"; all_active=false ;;
             deactivating) printf "  %-24s ${CYAN}%s${NC}\n" "$service" "Restarting"; all_active=false ;;
+            failed)       printf "  %-24s ${RED}%s${NC}\n" "$service" "FAILED"; all_active=false; any_failed=true ;;
             *)            printf "  %-24s ${YELLOW}%s${NC}\n" "$service" "$status"; all_active=false ;;
         esac
     done
 
-    if [[ "$all_active" != "true" ]]; then
+    if [[ "$any_failed" == "true" ]]; then
+        echo
+        log_warn "One or more services are in a FAILED state after the upgrade — this is NOT normal startup."
+        echo -e "  Investigate now: ${WHITE}journalctl -xeu $STRATUM_SERVICE${NC}"
+    elif [[ "$all_active" != "true" ]]; then
         echo
         echo -e "  ${YELLOW}Note:${NC} Stratum may still be starting (waiting for blockchain node)."
         echo -e "  Monitor with: journalctl -fu $STRATUM_SERVICE"
@@ -5077,7 +5301,7 @@ embed = {
         "```\nsudo /spiralpool/scripts/coin-upgrade.sh\n```"
     ),
     "color": 0xFF6B35,
-    "footer": {"text": "Spiral Pool v2.5.0 — Phi Hash Reactor  •  coin-upgrade.sh handles the chain resync risk"}
+    "footer": {"text": "Spiral Pool v2.5.3 — Phi Hash Reactor  •  coin-upgrade.sh handles the chain resync risk"}
 }
 print(json.dumps(embed))
 PYEOF
@@ -5486,6 +5710,12 @@ SSHDEOF
     # batch-started via start_services() after ALL updates complete
     local ORIG_SKIP_START="$SKIP_START"
     SKIP_START="true"
+
+    # Keep infrastructure (PostgreSQL, Redis) current as part of the upgrade. Pool
+    # consumers are stopped here, but PostgreSQL is still up (so it can be migrated).
+    # Never fatal: a failed major migration reverts to the old cluster and the upgrade
+    # continues on it.
+    upgrade_system_components || true
 
     # Run cosmetic config fixes ONLY when explicitly requested with --fix-config or --full.
     # These are non-critical fixes (coin names, pool IDs, duration formats) that are

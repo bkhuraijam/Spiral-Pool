@@ -1,14 +1,20 @@
-# Upgrading to Spiral Pool v2.5.0 (Phi Hash Reactor)
+# Upgrading to Spiral Pool v2.5.3 (Phi Hash Reactor)
 
 ## Is a full reinstall required?
 
-**No. There are zero incompatibilities between any prior version (v1.0.0, v1.1.x, v1.2.x, v2.4.x) and v2.5.0 for any coin.**
+**No. There are zero incompatibilities between any prior version (v1.0.0, v1.1.x, v1.2.x, v2.4.x) and v2.5.3 for any coin.**
 
 `upgrade.sh` handles the entire upgrade in-place. Your blockchain data, database records, wallet files, `config.yaml`, Sentinel state (achievements, miner nicknames, stats history), SSL certificates, and HA/VIP configuration are **all preserved**. The upgrade takes 2–5 minutes with automatic rollback if anything fails.
 
 ---
 
-## What's new in v2.5.0
+## What's new in v2.5.3
+
+See [CHANGELOG.md](../../CHANGELOG.md) for the full list. Key changes:
+
+- **Sentinel alerting-reliability audit** — fixes a false "Zombie state" chronic alert (a healthy miner whose self-reported hardware-reject rate spiked while the pool was accepting its shares) and hardens ~18 alert paths against false positives: pool-side cross-references for zombie/rejection/offline detection; confirmation/debounce windows for fan, hashboard, temperature, worker-count, replica, coin-node, and HA VIP/state alerts; counter-reset safety for Prometheus-derived alerts; and a chronic-issue count throttle. Covered by `tests/test_alert_debounce.py`.
+
+## What was new in v2.5.2
 
 See [CHANGELOG.md](../../CHANGELOG.md) for the full list. Key changes:
 
@@ -114,13 +120,13 @@ A weekly `VACUUM ANALYZE` timer (`spiralpool-pg-maintenance.timer`) is now insta
 
 ## Go code changes — compatibility analysis (v1.0.0 → v1.1.0)
 
-The v1.0.0 → v1.1.0 changes are listed below. **None require a reinstall, OS change, config change, or manual migration.** The v1.1.x → v2.5.0 changes are also fully backward-compatible — no new database migrations, no config format changes.
+The v1.0.0 → v1.1.0 changes are listed below. **None require a reinstall, OS change, config change, or manual migration.** The v1.1.x → v2.5.3 changes are also fully backward-compatible — no new database migrations, no config format changes.
 
 | Component | Change | Impact on existing installs |
 |-----------|--------|-----------------------------|
-| `pool.go` — `getAlgoBlockTime()` | QBX moved from 600s bucket to correct 150s bucket | Only affects QBX vardiff. All other coins (BTC, LTC, DGB, etc.) unchanged. |
+| `pool.go` — `getAlgoBlockTime()` | moved from 600s bucket to correct 150s bucket | Only affects vardiff. All other coins (BTC, LTC, DGB, etc.) unchanged. |
 | `api/server.go` — `POST /api/admin/kick` | New endpoint to disconnect miner stratum sessions by IP; requires `X-API-Key` header | New feature. No breaking changes to existing endpoints or clients. |
-| `SpiralSentinel.py` | QBX added to all lookup tables; `update_available` and `missing_payout` alert dedup fixed | Discord notifications now reliably deliver after quiet-hours suppression. Behavioral only. |
+| `SpiralSentinel.py` | added to all lookup tables; `update_available` and `missing_payout` alert dedup fixed | Discord notifications now reliably deliver after quiet-hours suppression. Behavioral only. |
 | `database/migrate.go` | No new migrations in v1.1.0 | Existing schema (migrations 1–10) carried forward unchanged. |
 | Version strings | `1.0.0 / BLACKICE` → `2.0.0 / PHI_HASH_REACTOR` throughout | Cosmetic. |
 
@@ -210,7 +216,7 @@ After enabling, visit the Dashboard at `http://<server>:1618/setup` to verify wa
 
 If you prefer manual control, you can add coins by editing config files directly.
 
-#### Standalone SHA-256d coins (BTC, BCH, BCH2, BC2, BTCS, DGB, XEC, QBX)
+#### Standalone SHA-256d coins (BTC, BCH, BCH2, BC2, BTCS, DGB, XEC)
 
 These run independently with no parent chain.
 
@@ -218,27 +224,27 @@ These run independently with no parent chain.
 
 ```yaml
 coins:
-  - symbol: QBX                         # or BTC, BCH, BCH2, BC2, BTCS, DGB
-    name: "Q-BitX"
+ - symbol: # or BTC, BCH, BCH2, BC2, BTCS, DGB
+ name: ""
     algorithm: "sha256d"
     address: ""                          # fill in step 2
     nodes:
       - host: "127.0.0.1"
-        port: 8344                       # coin's RPC port
+        port: 9999                       # coin's RPC port
         user: "rpcuser"
         password: "rpcpassword"
         zmq:
-          endpoint: "tcp://127.0.0.1:28344"   # coin's ZMQ port
+          endpoint: "tcp://127.0.0.1:29999"   # coin's ZMQ port
     stratum:
-      port: 20335                        # stratum V1 port
-      port_v2: 20336                     # stratum V2 port (optional)
-      tls_port: 20337                    # TLS port (optional)
+      port: 19333                        # stratum V1 port
+      port_v2: 19334                     # stratum V2 port (optional)
+      tls_port: 19335                    # TLS port (optional)
 ```
 
 **2. Create a wallet address** (for coins with CLI support):
 
 ```bash
-spiralpool-wallet --coin QBX   # also works for BTC, BCH, BCH2, BC2, BTCS, DGB, NMC, SYS, XMY, FBTC, LTC, DOGE, PEP, CAT
+spiralpool-wallet --coin # also works for BTC, BCH, BCH2, BC2, BTCS, DGB, NMC, SYS, XMY, FBTC, LTC, DOGE, PEP, CAT
 ```
 
 Copy the address into the `address:` field above, or enter it via the Dashboard at `http://<server>:1618/setup`.
@@ -353,13 +359,13 @@ Miners connect to the appropriate stratum port for their hardware algorithm. The
 spiralctl status
 ```
 
-The version line should show `2.5.0`. If Sentinel is running:
+The version line should show `2.5.3`. If Sentinel is running:
 
 ```bash
 sudo journalctl -u spiralsentinel -n 20
 ```
 
-Look for `Spiral Pool v2.5.0` followed by `Phi Hash Reactor` in the startup log.
+Look for `Spiral Pool v2.5.3` followed by `Phi Hash Reactor` in the startup log.
 
 ---
 
@@ -439,4 +445,4 @@ sudo ./upgrade.sh --check   # Check GitHub for latest version
 
 ---
 
-*Spiral Pool — Phi Hash Reactor 2.5.0 — Built on what came before. Growing toward phi.*
+*Spiral Pool — Phi Hash Reactor 2.5.3 — Built on what came before. Growing toward phi.*
