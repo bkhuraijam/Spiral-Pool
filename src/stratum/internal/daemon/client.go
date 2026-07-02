@@ -123,6 +123,11 @@ type BlockTemplate struct {
 	Height                   uint64      `json:"height"`
 	DefaultWitnessCommitment string      `json:"default_witness_commitment,omitempty"`
 
+        // DigiDollar (DGB) specific fields
+        // When DigiByte Core has a fresh oracle bundle, it provides this hex-encoded
+        // scriptPubKey. The pool MUST copy this exactly into the coinbase as a zero-value output.
+        DefaultOracleCommitment  string      `json:"default_oracle_commitment,omitempty"`
+
 	// eCash (XEC) specific fields
 	CoinbaseTxn   *XECCoinbaseTxn `json:"coinbasetxn,omitempty"`
 	RTT           *XECRTTData     `json:"rtt,omitempty"`

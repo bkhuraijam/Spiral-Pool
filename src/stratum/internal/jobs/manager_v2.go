@@ -134,11 +134,24 @@ func NewManagerV2(cfg *config.PoolConfig, stratumCfg *config.StratumConfig, node
 		log.Infow("Multi-algo coin detected", "gbtParam", mac.MultiAlgoGBTParam())
 	}
 
-	// Custom GBT rules: some coins require additional rules (e.g., Litecoin needs "mweb")
-	if grc, ok := coinImpl.(coin.GBTRulesCoin); ok {
-		nodeManager.SetGBTRules(grc.GBTRules())
-		log.Infow("Custom GBT rules configured", "rules", grc.GBTRules())
-	}
+        // Custom GBT rules: some coins require additional rules (e.g., Litecoin needs "mweb")
+        if grc, ok := coinImpl.(coin.GBTRulesCoin); ok {
+            rules := grc.GBTRules()
+
+            // DigiDollar (DGB) strict opt-in: append digidollar-oracle rule if configured
+            if cfg.DigiDollar {
+                rules = append(rules, "digidollar-oracle")
+                log.Infow("DigiDollar opt-in enabled: appended digidollar-oracle rule", "rules", rules)
+            }
+
+            nodeManager.SetGBTRules(rules)
+            log.Infow("Custom GBT rules configured", "rules", rules)
+        } else if cfg.DigiDollar {
+            // DigiDollar opt-in for coins that don't define custom GBT rules (like DigiByte)
+            rules := []string{"segwit", "digidollar-oracle"}
+            nodeManager.SetGBTRules(rules)
+            log.Infow("DigiDollar opt-in enabled: configured default rules with digidollar-oracle", "rules", rules)
+        }
 
 	return &ManagerV2{
 		Manager:     baseManager,

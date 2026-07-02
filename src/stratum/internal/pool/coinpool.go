@@ -263,6 +263,7 @@ func NewCoinPool(cfg *CoinPoolConfig) (*CoinPool, error) {
 		Coin:         cfg.CoinConfig.Symbol,
 		Address:      cfg.CoinConfig.Address,
 		CoinbaseText: cfg.CoinConfig.CoinbaseText,
+                DigiDollar:   cfg.CoinConfig.DigiDollar, 
 	}
 
 	// Initialize components
