@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Self-Hosted Bitcoin &amp; Altcoin Mining Pool Software &mdash; Stratum V1/V2/TLS, SHA-256d &amp; Scrypt</strong><br>
-  <em>Phi Hash Reactor V2.5.3</em>
+  <em>Spiral Citadel V2.6.0</em>
 </p>
 
 <p align="center">
@@ -36,9 +36,9 @@ Spiral Pool is **free, open-source, self-hosted Stratum mining pool software** f
 
 Block rewards are embedded directly in the coinbase transaction paying the **miner's own wallet address**. The intended fund flow is: **Blockchain &rarr; Coinbase Transaction &rarr; Miner's Wallet.** There is no pool wallet, no intermediate balance, no fees, and no withdrawal process &mdash; the software is designed to never hold, route, or access funds at any point in the payment path.
 
-At its core is the **Spiral Router** &mdash; a miner classification engine that identifies miners via 47 verified user-agent patterns at connection time and maps each to one of 15 SHA-256d or 8 Scrypt difficulty profiles before a single share is submitted. Paired with a **lock-free vardiff engine** using per-session atomic state, asymmetric ramp limits (4&times; up / 0.75&times; down), and a 50% variance floor, difficulty spirals toward equilibrium rather than oscillating around a target.
+At its core is the **Spiral Router** &mdash; a miner classification engine that identifies miners via 47 verified user-agent patterns at connection time and maps each to one of 14 SHA-256d or 8 Scrypt difficulty profiles before a single share is submitted. Paired with a **lock-free vardiff engine** using per-session atomic state, asymmetric ramp limits (4&times; up / 0.75&times; down), and a 50% variance floor, difficulty spirals toward equilibrium rather than oscillating around a target.
 
-17 coins. 2 algorithms. 6 merge-mining pairs. One binary.
+16 coins. 2 algorithms. 6 merge-mining pairs. One binary.
 
 ### No Tiers. No Licensing. No Strings.
 
@@ -66,7 +66,7 @@ This is pure free and open-source software. Fork it, audit it, modify it, redist
 | **Merge mining** | 6 AuxPoW pairs across BTC and LTC parent chains |
 | **Non-custodial solo payout** | Block reward embedded in coinbase tx directly to miner's wallet &mdash; no pool custody |
 | **Share pipeline** | Lock-free ring buffer (1M, MPSC) &rarr; WAL &rarr; PostgreSQL COPY batch insert |
-| **Pruned node support** | Optional per-coin pruning (5 GB cap) &mdash; BTC 600 GB&rarr;5 GB, DGB 60 GB&rarr;5 GB |
+| **Pruned node support** | Optional per-coin pruning (5 GB cap) &mdash; BTC 600 GB&rarr;5 GB, LTC 100 GB&rarr;5 GB (DGB excluded &mdash; v9.26.3 requires a full node) |
 | **Spiral Dash** | Hashrate/analytics charts (15M&ndash;30D), fleet power &amp; efficiency, earnings calculator, block history, CSV/JSON export. Per-firmware miner controls (AxeOS, Avalon, Vnish, ePIC, LuxOS). Worker groups, Avalon power schedules, service control, log viewer, 25 themes (port 1618) |
 | **Spiral Sentinel** | Device discovery, auto-scan (BraiinsOS/Vnish), stratum &amp; wallet mismatch detection, health/temp/hashrate alerts, block notifications, dry streak &amp; difficulty detection, mempool congestion. Discord, Telegram, XMPP, ntfy, SMTP, webhooks |
 | **Multi coin smart port** | Single port (16180) rotating SHA-256d coins by either a 24h weighted schedule (TIME mode) or live lowest-network-difficulty selection (DIFFICULTY mode), with failover |
@@ -108,7 +108,6 @@ Spiral Pool is designed to work with Stratum V1-compatible ASIC miners. The Spir
 | Myriad | XMY | 1 min | BTC (AuxPoW, chain ID 90) |
 | Fractal Bitcoin | FBTC | 30 sec | BTC (AuxPoW, chain ID 8228) |
 | eCash | XEC | 10 min | &mdash; |
-| 2.5 min | &mdash; |
 
 ### Scrypt
 
@@ -247,7 +246,7 @@ Spiral Sentinel supports real-time alerts via **Discord**, **Telegram**, **XMPP/
 | Document | Description |
 |----------|-------------|
 | [OPERATIONS.md](docs/setup/OPERATIONS.md) | Installation, configuration, monitoring, HA, upgrading, troubleshooting |
-| [UPGRADE_GUIDE.md](docs/setup/UPGRADE_GUIDE.md) | v1.0 &rarr; v2.5.3 upgrade guide |
+| [UPGRADE_GUIDE.md](docs/setup/UPGRADE_GUIDE.md) | v1.0 &rarr; v2.6.0 upgrade guide |
 | [CLOUD_OPERATIONS.md](docs/setup/CLOUD_OPERATIONS.md) | Cloud/VPS deployment hardening and security |
 | [DOCKER_GUIDE.md](docs/setup/DOCKER_GUIDE.md) | Docker &amp; WSL2 deployment |
 | [WINDOWS_GUIDE.md](docs/setup/WINDOWS_GUIDE.md) | Windows installation &mdash; Docker Desktop vs WSL2 Native |
@@ -320,4 +319,4 @@ All product names, logos, and brands are property of their respective owners. Se
 
 ---
 
-*Spiral Pool &mdash; Phi Hash Reactor 2.5.3 &mdash; Convergent difficulty. Minimal oscillation.*
+*Spiral Pool &mdash; Spiral Citadel 2.6.0 &mdash; Convergent difficulty. Minimal oscillation.*
