@@ -229,24 +229,11 @@ func NewManager(cfg *config.PoolConfig, stratumCfg *config.StratumConfig, daemon
 		log.Infow("Multi-algo coin detected", "gbtParam", mac.MultiAlgoGBTParam())
 	}
 
-        // Custom GBT rules: some coins require additional rules (e.g., Litecoin needs "mweb")
-        if grc, ok := coinImpl.(coin.GBTRulesCoin); ok {
-            rules := grc.GBTRules()
-
-            // DigiDollar (DGB) strict opt-in: append digidollar-oracle rule if configured
-            if cfg.DigiDollar {
-                rules = append(rules, "digidollar-oracle")
-                log.Infow("DigiDollar opt-in enabled: appended digidollar-oracle rule", "rules", rules)
-            }
-
-            daemonClient.SetGBTRules(rules)
-            log.Infow("Custom GBT rules configured", "rules", rules)
-        } else if cfg.DigiDollar {
-            // DigiDollar opt-in for coins that don't define custom GBT rules (like DigiByte)
-            rules := []string{"segwit", "digidollar-oracle"}
-            daemonClient.SetGBTRules(rules)
-            log.Infow("DigiDollar opt-in enabled: configured default rules with digidollar-oracle", "rules", rules)
-        }
+	// Custom GBT rules: some coins require additional rules (e.g., Litecoin needs "mweb")
+	if grc, ok := coinImpl.(coin.GBTRulesCoin); ok {
+		daemonClient.SetGBTRules(grc.GBTRules())
+		log.Infow("Custom GBT rules configured", "rules", grc.GBTRules())
+	}
 
 	return &Manager{
 		cfg:                      cfg,
@@ -1039,90 +1026,60 @@ func (m *Manager) buildCoinbase2Only(template *daemon.BlockTemplate) (coinbase1U
 	// Some non-SegWit daemons (e.g. ) still include default_witness_commitment
 	// in getblocktemplate; including it causes "unexpected-witness" rejection.
 	// nil coinImpl: default to including witness (backwards-compatible for SegWit coins).
-        segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
-        includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
-        
-        // DigiDollar (DGB): Check for oracle commitment
-        // We pre-decode to ensure it's valid before incrementing outputCount
-        var oracleScript []byte
-        includeOracle := false
-        if template.DefaultOracleCommitment != "" {
-                decoded, err := hex.DecodeString(template.DefaultOracleCommitment)
-                if err != nil {
-                        m.logger.Errorw("CRITICAL: Invalid oracle commitment hex - ignoring",
-                                "error", err,
-                                "commitment", template.DefaultOracleCommitment,
-                        )
-                } else {
-                        oracleScript = decoded
-                        includeOracle = true
-                }
-        }
+	segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
+	includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
+	outputCount := byte(0x01)
+	if includeWitness {
+		outputCount = 0x02
+	}
+	cb2 = append(cb2, outputCount)
 
-        // Calculate total output count
-        outputCount := byte(0x01) // Pool reward
-        if includeWitness {
-                outputCount++
-        }
-        if includeOracle {
-                outputCount++
-        }
-        cb2 = append(cb2, outputCount)
+	// Output 1: Pool reward
+	if template.CoinbaseValue < 0 {
+		m.logger.Errorw("CRITICAL: Negative coinbase value from node", "value", template.CoinbaseValue)
+		template.CoinbaseValue = 0
+	}
+	valueBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(valueBytes, uint64(template.CoinbaseValue))
+	cb2 = append(cb2, valueBytes...)
 
-        // Output 1: Pool reward
-        if template.CoinbaseValue < 0 {
-                m.logger.Errorw("CRITICAL: Negative coinbase value from node", "value", template.CoinbaseValue)
-                template.CoinbaseValue = 0
-        }
-        valueBytes := make([]byte, 8)
-        binary.LittleEndian.PutUint64(valueBytes, uint64(template.CoinbaseValue))
-        cb2 = append(cb2, valueBytes...)
+	// Output script (pay to pool address)
+	script := m.buildOutputScript()
+	cb2 = append(cb2, byte(len(script)))
+	cb2 = append(cb2, script...)
 
-        // Output script (pay to pool address)
-        script := m.buildOutputScript()
-        cb2 = append(cb2, byte(len(script)))
-        cb2 = append(cb2, script...)
-
-        // Output 2: Witness commitment (SegWit coins only)
-        if includeWitness {
-                witnessScript, err := hex.DecodeString(template.DefaultWitnessCommitment)
-                if err != nil {
-                        m.logger.Errorw("CRITICAL: Invalid witness commitment hex",
-                                "error", err,
-                                "commitment", template.DefaultWitnessCommitment,
-                        )
-                        // Rebuild without witness
-                        cb2 = make([]byte, 0, 128)
-                        cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
-                        cb2 = append(cb2, 0x01)
-                        cb2 = append(cb2, valueBytes...)
-                        cb2 = append(cb2, byte(len(script)))
-                        cb2 = append(cb2, script...)
-                } else if len(witnessScript) < 2 || witnessScript[0] != 0x6a {
-                        m.logger.Errorw("CRITICAL: Invalid witness commitment format",
-                                "firstByte", fmt.Sprintf("0x%02x", witnessScript[0]),
-                        )
-                        cb2 = make([]byte, 0, 128)
-                        cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
-                        cb2 = append(cb2, 0x01)
-                        cb2 = append(cb2, valueBytes...)
-                        cb2 = append(cb2, byte(len(script)))
-                        cb2 = append(cb2, script...)
-                } else {
-                        // Zero value for witness commitment output
-                        cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-                        cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(witnessScript)))...)
-                        cb2 = append(cb2, witnessScript...)
-                }
-        }
-
-        // Output 3 (or 2): Oracle commitment (DigiDollar)
-        if includeOracle {
-                // Zero value for oracle commitment output
-                cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(oracleScript)))...)
-                cb2 = append(cb2, oracleScript...)
-        }
+	// Output 2: Witness commitment (SegWit coins only)
+	if includeWitness {
+		witnessScript, err := hex.DecodeString(template.DefaultWitnessCommitment)
+		if err != nil {
+			m.logger.Errorw("CRITICAL: Invalid witness commitment hex",
+				"error", err,
+				"commitment", template.DefaultWitnessCommitment,
+			)
+			// Rebuild without witness
+			cb2 = make([]byte, 0, 128)
+			cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
+			cb2 = append(cb2, 0x01)
+			cb2 = append(cb2, valueBytes...)
+			cb2 = append(cb2, byte(len(script)))
+			cb2 = append(cb2, script...)
+		} else if len(witnessScript) < 2 || witnessScript[0] != 0x6a {
+			m.logger.Errorw("CRITICAL: Invalid witness commitment format",
+				"firstByte", fmt.Sprintf("0x%02x", witnessScript[0]),
+			)
+			cb2 = make([]byte, 0, 128)
+			cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
+			cb2 = append(cb2, 0x01)
+			cb2 = append(cb2, valueBytes...)
+			cb2 = append(cb2, byte(len(script)))
+			cb2 = append(cb2, script...)
+		} else {
+			// Zero value for witness commitment output
+			cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+			cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(witnessScript)))...)
+			cb2 = append(cb2, witnessScript...)
+		}
+	}
 
 	// Locktime
 	cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00)
@@ -1261,172 +1218,139 @@ func (m *Manager) buildCoinbase(template *daemon.BlockTemplate) (coinbase1, coin
 	// Non-SegWit coins (e.g. XEC) must use outputCount=1+ or the node returns
 	// "unexpected-witness" and rejects the block.
 	// nil coinImpl: default to including witness (backwards-compatible for SegWit coins).
-        segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
-        includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
-        
-        // DigiDollar (DGB): Check for oracle commitment
-        // We pre-decode to ensure it's valid before incrementing outputCount
-        var oracleScript []byte
-        includeOracle := false
-        if template.DefaultOracleCommitment != "" {
-                decoded, err := hex.DecodeString(template.DefaultOracleCommitment)
-                if err != nil {
-                        m.logger.Errorw("CRITICAL: Invalid oracle commitment hex - ignoring",
-                                "error", err,
-                                "commitment", template.DefaultOracleCommitment,
-                        )
-                } else {
-                        oracleScript = decoded
-                        includeOracle = true
-                }
-        }
+	segwitOK := m.coinImpl == nil || m.coinImpl.SupportsSegWit()
+	includeWitness := template.DefaultWitnessCommitment != "" && segwitOK
+	outputCount := byte(0x01)
+	if hasMinerFund {
+		outputCount++
+	}
+	if hasStakingReward {
+		outputCount++
+	}
+	if includeWitness {
+		outputCount++
+	}
+	cb2 = append(cb2, outputCount)
 
-        outputCount := byte(0x01)
-        if hasMinerFund {
-                outputCount++
-        }
-        if hasStakingReward {
-                outputCount++
-        }
-        if includeWitness {
-                outputCount++
-        }
-        if includeOracle {
-                outputCount++
-        }
-        cb2 = append(cb2, outputCount)
+	// Output 1: Pool reward (coinbase reward in satoshis, little-endian).
+	// For XEC: poolReward has already had MinerFund + StakingRewards deducted above.
+	// For all other coins: poolReward == template.CoinbaseValue.
+	valueBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(valueBytes, uint64(poolReward))
+	cb2 = append(cb2, valueBytes...)
 
-        // Output 1: Pool reward (coinbase reward in satoshis, little-endian).
-        // For XEC: poolReward has already had MinerFund + StakingRewards deducted above.
-        // For all other coins: poolReward == template.CoinbaseValue.
-        valueBytes := make([]byte, 8)
-        binary.LittleEndian.PutUint64(valueBytes, uint64(poolReward))
-        cb2 = append(cb2, valueBytes...)
+	// Output script (pay to pool address) - uses coin-specific script builder
+	script := m.buildOutputScript()
+	cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
+	cb2 = append(cb2, script...)
 
-        // Output script (pay to pool address) - uses coin-specific script builder
-        script := m.buildOutputScript()
-        cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
-        cb2 = append(cb2, script...)
+	// Output 2 (XEC only): MinerFund — mandatory Infrastructure Funding Plan output
+	if hasMinerFund {
+		minerFundValueBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(minerFundValueBytes, uint64(minerFundAmount))
+		cb2 = append(cb2, minerFundValueBytes...)
+		cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+		cb2 = append(cb2, minerFundScript...)
+	}
 
-        // Output 2 (XEC only): MinerFund — mandatory Infrastructure Funding Plan output
-        if hasMinerFund {
-                minerFundValueBytes := make([]byte, 8)
-                binary.LittleEndian.PutUint64(minerFundValueBytes, uint64(minerFundAmount))
-                cb2 = append(cb2, minerFundValueBytes...)
-                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
-                cb2 = append(cb2, minerFundScript...)
-        }
+	// Output 3 (XEC only): StakingRewards — mandatory post-upgrade staking output
+	if hasStakingReward {
+		stakingValueBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(stakingValueBytes, uint64(stakingAmount))
+		cb2 = append(cb2, stakingValueBytes...)
+		cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+		cb2 = append(cb2, stakingScript...)
+	}
 
-        // Output 3 (XEC only): StakingRewards — mandatory post-upgrade staking output
-        if hasStakingReward {
-                stakingValueBytes := make([]byte, 8)
-                binary.LittleEndian.PutUint64(stakingValueBytes, uint64(stakingAmount))
-                cb2 = append(cb2, stakingValueBytes...)
-                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
-                cb2 = append(cb2, stakingScript...)
-        }
-
-        // Output 2/3/4: Witness commitment (if present)
-        // This is required for blocks containing SegWit transactions
-        if includeWitness {
-                witnessScript, err := hex.DecodeString(template.DefaultWitnessCommitment)
-                if err != nil {
-                        // CRITICAL: If we can't decode the witness commitment, we MUST NOT
-                        // create a block with outputCount=2 but only 1 output. This would
-                        // create an invalid transaction structure.
-                        m.logger.Errorw("CRITICAL: Invalid witness commitment hex - block would be invalid!",
-                                "error", err,
-                                "commitment", template.DefaultWitnessCommitment,
-                        )
-                        // Revert — rebuild cb2 without witness commitment.
-                        // This loses segwit transaction fees but produces a valid block.
-                        noWitnessCount := byte(0x01)
-                        if hasMinerFund {
-                                noWitnessCount++
-                        }
-                        if hasStakingReward {
-                                noWitnessCount++
-                        }
-                        if includeOracle {
-                                noWitnessCount++
-                        }
-                        cb2 = make([]byte, 0, 128)
-                        cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff) // Sequence
-                        cb2 = append(cb2, noWitnessCount)
-                        cb2 = append(cb2, valueBytes...)
-                        cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
-                        cb2 = append(cb2, script...)
-                        if hasMinerFund {
-                                mfvb := make([]byte, 8)
-                                binary.LittleEndian.PutUint64(mfvb, uint64(minerFundAmount))
-                                cb2 = append(cb2, mfvb...)
-                                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
-                                cb2 = append(cb2, minerFundScript...)
-                        }
-                        if hasStakingReward {
-                                srvb := make([]byte, 8)
-                                binary.LittleEndian.PutUint64(srvb, uint64(stakingAmount))
-                                cb2 = append(cb2, srvb...)
-                                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
-                                cb2 = append(cb2, stakingScript...)
-                        }
-                        // NOTE: If witness fails, we still append Oracle below if valid
-                } else {
-                        // Validate witness script format (should start with 0x6a = OP_RETURN)
-                        if len(witnessScript) < 2 || witnessScript[0] != 0x6a {
-                                m.logger.Errorw("CRITICAL: Invalid witness commitment format - expected OP_RETURN script",
-                                        "firstByte", fmt.Sprintf("0x%02x", witnessScript[0]),
-                                        "expected", "0x6a (OP_RETURN)",
-                                )
-                                // Revert — rebuild cb2 without witness commitment.
-                                noWitnessCount2 := byte(0x01)
-                                if hasMinerFund {
-                                        noWitnessCount2++
-                                }
-                                if hasStakingReward {
-                                        noWitnessCount2++
-                                }
-                                if includeOracle {
-                                        noWitnessCount2++
-                                }
-                                cb2 = make([]byte, 0, 128)
-                                cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
-                                cb2 = append(cb2, noWitnessCount2)
-                                cb2 = append(cb2, valueBytes...)
-                                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
-                                cb2 = append(cb2, script...)
-                                if hasMinerFund {
-                                        mfvb := make([]byte, 8)
-                                        binary.LittleEndian.PutUint64(mfvb, uint64(minerFundAmount))
-                                        cb2 = append(cb2, mfvb...)
-                                        cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
-                                        cb2 = append(cb2, minerFundScript...)
-                                }
-                                if hasStakingReward {
-                                        srvb := make([]byte, 8)
-                                        binary.LittleEndian.PutUint64(srvb, uint64(stakingAmount))
-                                        cb2 = append(cb2, srvb...)
-                                        cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
-                                        cb2 = append(cb2, stakingScript...)
-                                }
-                                // NOTE: If witness fails, we still append Oracle below if valid
-                        } else {
-                                // Zero value for witness commitment output
-                                cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-                                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(witnessScript)))...)
-                                cb2 = append(cb2, witnessScript...)
-                        }
-                }
-        }
-
-        // Output N: Oracle commitment (DigiDollar)
-        if includeOracle {
-                // Zero value for oracle commitment output
-                cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-                cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(oracleScript)))...)
-                cb2 = append(cb2, oracleScript...)
-        }
-
+	// Output 2: Witness commitment (if present)
+	// This is required for blocks containing SegWit transactions
+	// IMPORTANT: default_witness_commitment from getblocktemplate is the FULL output script
+	// (e.g., "6a24aa21a9ed..." = OP_RETURN + PUSH(36) + commitment), NOT just the commitment hash.
+	// Reference: BIP 145 - https://github.com/bitcoin/bips/blob/master/bip-0145.mediawiki
+	if includeWitness {
+		witnessScript, err := hex.DecodeString(template.DefaultWitnessCommitment)
+		if err != nil {
+			// CRITICAL: If we can't decode the witness commitment, we MUST NOT
+			// create a block with outputCount=2 but only 1 output. This would
+			// create an invalid transaction structure.
+			m.logger.Errorw("CRITICAL: Invalid witness commitment hex - block would be invalid!",
+				"error", err,
+				"commitment", template.DefaultWitnessCommitment,
+			)
+			// Revert — rebuild cb2 without witness commitment.
+			// This loses segwit transaction fees but produces a valid block.
+			noWitnessCount := byte(0x01)
+			if hasMinerFund {
+				noWitnessCount++
+			}
+			if hasStakingReward {
+				noWitnessCount++
+			}
+			cb2 = make([]byte, 0, 128)
+			cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff) // Sequence
+			cb2 = append(cb2, noWitnessCount)
+			cb2 = append(cb2, valueBytes...)
+			cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
+			cb2 = append(cb2, script...)
+			if hasMinerFund {
+				mfvb := make([]byte, 8)
+				binary.LittleEndian.PutUint64(mfvb, uint64(minerFundAmount))
+				cb2 = append(cb2, mfvb...)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+				cb2 = append(cb2, minerFundScript...)
+			}
+			if hasStakingReward {
+				srvb := make([]byte, 8)
+				binary.LittleEndian.PutUint64(srvb, uint64(stakingAmount))
+				cb2 = append(cb2, srvb...)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+				cb2 = append(cb2, stakingScript...)
+			}
+		} else {
+			// Validate witness script format (should start with 0x6a = OP_RETURN)
+			if len(witnessScript) < 2 || witnessScript[0] != 0x6a {
+				m.logger.Errorw("CRITICAL: Invalid witness commitment format - expected OP_RETURN script",
+					"firstByte", fmt.Sprintf("0x%02x", witnessScript[0]),
+					"expected", "0x6a (OP_RETURN)",
+				)
+				// Revert — rebuild cb2 without witness commitment.
+				noWitnessCount2 := byte(0x01)
+				if hasMinerFund {
+					noWitnessCount2++
+				}
+				if hasStakingReward {
+					noWitnessCount2++
+				}
+				cb2 = make([]byte, 0, 128)
+				cb2 = append(cb2, 0xff, 0xff, 0xff, 0xff)
+				cb2 = append(cb2, noWitnessCount2)
+				cb2 = append(cb2, valueBytes...)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(script)))...)
+				cb2 = append(cb2, script...)
+				if hasMinerFund {
+					mfvb2 := make([]byte, 8)
+					binary.LittleEndian.PutUint64(mfvb2, uint64(minerFundAmount))
+					cb2 = append(cb2, mfvb2...)
+					cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(minerFundScript)))...)
+					cb2 = append(cb2, minerFundScript...)
+				}
+				if hasStakingReward {
+					srvb2 := make([]byte, 8)
+					binary.LittleEndian.PutUint64(srvb2, uint64(stakingAmount))
+					cb2 = append(cb2, srvb2...)
+					cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(stakingScript)))...)
+					cb2 = append(cb2, stakingScript...)
+				}
+			} else {
+				// Value: 0 satoshis (witness commitment outputs have zero value)
+				cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+				// Script: The full witness commitment script from the template
+				// Use VarInt for script length (could be > 252 bytes in theory)
+				cb2 = append(cb2, crypto.EncodeVarInt(uint64(len(witnessScript)))...)
+				cb2 = append(cb2, witnessScript...)
+			}
+		}
+	}
 
 	// Locktime
 	cb2 = append(cb2, 0x00, 0x00, 0x00, 0x00)

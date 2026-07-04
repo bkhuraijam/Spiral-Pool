@@ -225,11 +225,7 @@ type CoinPoolConfig struct {
 	Symbol  string `yaml:"symbol"`  // Coin symbol: DGB, BTC, BCH
 	PoolID  string `yaml:"pool_id"` // Unique pool identifier
 	Enabled bool   `yaml:"enabled"` // Whether this coin pool is active
-        Address string `yaml:"address"` // Pool wallet address for this coin
-
-        // DigiDollar (DGB) specific opt-in flag.
-	// When true, requests digidollar-oracle GBT rules.
-	DigiDollar bool `yaml:"digidollar,omitempty"`
+	Address string `yaml:"address"` // Pool wallet address for this coin
 
 	// Coinbase settings
 	CoinbaseText string `yaml:"coinbase_text,omitempty"` // Pool tag in coinbase

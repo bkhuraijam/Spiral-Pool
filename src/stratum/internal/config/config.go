@@ -50,11 +50,6 @@ type CoinConfig struct {
 	BlockReward    float64      `yaml:"blockReward"`              // Current block reward
 	BlockTime     int          `yaml:"blockTime"`     // Target block time in seconds
 	Confirmations int          `yaml:"confirmations"` // Required confirmations before payout
-
-        // DigiDollar (DGB) specific opt-in flag.
-	// When true, the pool will request DigiDollar-aware block templates
-	// and preserve the oracle commitment in the coinbase.
-	DigiDollar    bool         `yaml:"digidollar,omitempty"`
 }
 
 // PoolConfig defines the pool identity and coin settings
@@ -64,9 +59,6 @@ type PoolConfig struct {
 	Address           string `yaml:"address"`
 	CoinbaseText      string `yaml:"coinbaseText"`
 	SkipGenesisVerify bool   `yaml:"skipGenesisVerify,omitempty"` // Regtest/testnet only
-
-        // DigiDollar (DGB) strict opt-in flag
-        DigiDollar        bool   `yaml:"digidollar,omitempty"`
 }
 
 // StratumConfig defines stratum server settings

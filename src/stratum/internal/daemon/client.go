@@ -123,17 +123,6 @@ type BlockTemplate struct {
 	Height                   uint64      `json:"height"`
 	DefaultWitnessCommitment string      `json:"default_witness_commitment,omitempty"`
 
-        // DigiDollar (DGB) specific fields
-        // When DigiByte Core has a fresh oracle bundle, it provides this hex-encoded
-        // scriptPubKey. The pool MUST copy this exactly into the coinbase as a zero-value output.
-        DefaultOracleCommitment  string      `json:"default_oracle_commitment,omitempty"`
-
-        // Version Bits (BIP9) available soft forks
-        // The node provides a map of soft fork names to their bit positions (e.g., {"digidollar": 23}).
-        // The pool MUST apply these bits to the block version to signal support.
-        VBAvailable              map[string]uint32 `json:"vbavailable,omitempty"`
-        VBRequired               uint32            `json:"vbrequired,omitempty"`
-
 	// eCash (XEC) specific fields
 	CoinbaseTxn   *XECCoinbaseTxn `json:"coinbasetxn,omitempty"`
 	RTT           *XECRTTData     `json:"rtt,omitempty"`
