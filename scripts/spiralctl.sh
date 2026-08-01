@@ -35,7 +35,7 @@ fi
 
 INSTALL_DIR="${INSTALL_DIR:-/spiralpool}"
 VERSION="$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
-VERSION="${VERSION:-2.6.0}"
+VERSION="${VERSION:-2.6.3}"
 CONFIG_FILE="$INSTALL_DIR/config/config.yaml"
 POOL_USER="${POOL_USER:-spiraluser}"
 
@@ -4320,9 +4320,10 @@ cmd_coin() {
                 echo ""
                 echo -e "${WHITE}SAVINGS${NC}"
                 echo "    BTC: ~600 GB → 5 GB    BCH: ~200 GB → 5 GB"
-                echo "    LTC: ~100 GB → 5 GB"
+                echo "    LTC: ~100 GB → 5 GB    DGB: ~80 GB → 5 GB"
                 echo ""
-                echo -e "${YELLOW}    DigiByte (DGB) does not support pruning — v9.26.3 requires a full node.${NC}"
+                echo -e "${CYAN}    DigiByte (DGB) supports pruning as of DigiByte Core v9.26.4 —${NC}"
+                echo -e "${CYAN}    DigiDollar runs pruned; txindex is dropped automatically.${NC}"
                 echo ""
                 echo -e "${YELLOW}⚠  This requires a full resync — blockchain data will be re-downloaded.${NC}"
                 return 0
@@ -4331,15 +4332,6 @@ cmd_coin() {
             daemon=$(get_coin_daemon "$coin")
             if [[ -z "$daemon" ]]; then
                 log_error "Unknown coin: $coin"
-                exit 1
-            fi
-
-            # DigiByte Core v9.26.3+ requires txindex=1 for DigiDollar and refuses
-            # to start when pruned — pruning is not supported for DGB.
-            if [[ "$coin" == "DGB" || "$coin" == "DGB-SCRYPT" ]]; then
-                log_error "Pruning is not supported for DigiByte (DGB)."
-                log_error "DigiByte Core v9.26.3+ requires txindex=1 for DigiDollar and will"
-                log_error "not start with pruning enabled. DGB must run as a full node."
                 exit 1
             fi
 
@@ -4374,11 +4366,52 @@ cmd_coin() {
                 exit 1
             fi
 
-            # Check if already pruned (prune=0 means NOT pruned — full node default)
-            if grep -qE "^prune=[1-9]" "$conf_file" 2>/dev/null; then
+            # Config already has pruning set. But the *running* daemon may predate that
+            # edit — the config was regenerated while the daemon was up, or prune was
+            # added without a restart — leaving the live node a full node even though
+            # the config says pruned. Reconcile the two so operators never have to know
+            # to restart by hand (prune=0 means NOT pruned — full node default).
+            if grep -qE "^[[:space:]]*prune=[1-9]" "$conf_file" 2>/dev/null; then
                 local current_prune
-                current_prune=$(grep "^prune=" "$conf_file" | head -1 | cut -d= -f2)
-                log_info "$coin is already configured with prune=${current_prune}"
+                current_prune=$(grep -oP '^[[:space:]]*prune=\K[0-9]+' "$conf_file" | head -1)
+
+                # Ask the live daemon whether it is actually pruned right now.
+                local cli live_pruned=""
+                cli=$(get_coin_cli "$coin")
+                if [[ -n "$cli" ]]; then
+                    live_pruned=$($cli getblockchaininfo 2>/dev/null \
+                        | grep -oE '"pruned"[[:space:]]*:[[:space:]]*(true|false)' | grep -oE '(true|false)' | head -1)
+                fi
+
+                if [[ "$live_pruned" == "true" ]]; then
+                    log_info "$coin is already pruned (prune=${current_prune}) — the running daemon confirms it."
+                    return 0
+                fi
+                if [[ -z "$live_pruned" ]]; then
+                    # Daemon not running / still loading — config is set; it applies on next start.
+                    log_info "$coin config already has prune=${current_prune}; daemon not responding, so it will apply on next start."
+                    return 0
+                fi
+
+                # Drift: config says pruned but the live daemon is still a full node.
+                log_warn "$coin config has prune=${current_prune} but the running daemon is NOT pruned —"
+                log_warn "it started before pruning was configured. Applying it now (restart)."
+                if grep -qE '^[[:space:]]*txindex=1' "$conf_file" 2>/dev/null; then
+                    sed -i 's/^[[:space:]]*txindex=1/#txindex=1  # disabled for pruning/' "$conf_file"
+                fi
+                local _dd; _dd="$(_chain_dir "$coin_lower")"
+                if [[ -d "${_dd}/indexes/txindex" ]]; then
+                    log_info "Removing orphaned transaction index to reclaim disk…"
+                    rm -rf "${_dd}/indexes/txindex" 2>/dev/null || sudo rm -rf "${_dd}/indexes/txindex" 2>/dev/null || true
+                fi
+                log_info "Restarting $daemon to apply pruning…"
+                systemctl restart "$daemon"
+                log_success "$coin pruning applied (prune=${current_prune})."
+                log_warn "First start runs a ONE-TIME block-store prune (RPC: error -28 'Pruning"
+                log_warn "blockstore…'); $coin serves no templates, so its shares are REJECTED until"
+                log_warn "it completes. Duration VARIES with chain size, disk speed, and load —"
+                log_warn "several minutes to an hour or more. Check progress with:"
+                log_info "    $cli getblockchaininfo    # '\"pruned\": true' when done"
                 return 0
             fi
 
@@ -4408,6 +4441,11 @@ cmd_coin() {
             log_info "Restarting $daemon..."
             systemctl restart "$daemon"
             log_success "$coin pruning enabled (prune=5000, ~5 GB). Daemon restarted."
+            log_warn "First start runs a ONE-TIME block-store prune (RPC: error -28 'Pruning"
+            log_warn "blockstore…'); $coin serves no templates, so its shares are REJECTED until"
+            log_warn "it completes. Duration VARIES with chain size, disk speed, and load —"
+            log_warn "several minutes to an hour or more. Check progress with:"
+            log_info "    $(get_coin_cli "$coin") getblockchaininfo    # '\"pruned\": true' when done"
             echo ""
             echo -e "  ${DIM}Monitor sync progress: spiralctl sync${NC}"
             echo ""
@@ -5039,6 +5077,359 @@ with open(sys.argv[1], 'w') as f:
             echo "  spiralctl config show"
             echo "  spiralctl config get expected_hashrate"
             echo "  spiralctl config set expected_hashrate 50"
+            exit 1
+            ;;
+    esac
+}
+
+#===============================================================================
+# ALERTS COMMAND — enable/disable individual Sentinel alerts & reports
+#===============================================================================
+
+# Canonical alert/report type names, grouped for display. Disabling any name
+# silences that alert everywhere: send_alert() in SpiralSentinel.py also strips
+# infra_/pool_ prefixes, so one canonical name covers the native, Prometheus
+# (infra_*) and Go-bridged (pool_*) variants. Keep in sync with the send_alert()
+# call sites in SpiralSentinel.py. block_found is intentionally absent — it can
+# never be muted.
+_alerts_groups() {
+    cat <<'EOF'
+Miner & fleet|miner_offline miner_online miner_reboot temp_warning temp_critical thermal_shutdown zombie_miner degradation auto_restart excessive_restarts chronic_issue power_event fan_failure hashboard_dead hw_error_rate group_offline group_online worker_count_drop
+Performance|hashrate_divergence share_rejection_spike share_loss_rate best_share
+Network & odds|hashrate_crash pool_hashrate_drop high_odds dry_streak difficulty_change mempool_congestion
+Coin node|coin_node_down coin_sync_behind coin_change coin_config_change block_notify_mode_change
+Block events|block_orphaned
+Disk & backup|disk_warning disk_critical backup_stale
+Wallet & market|sats_surge price_crash payout_received missing_payout wallet_drop revenue_decline
+Security|stratum_url_mismatch
+High availability|ha_vip_change ha_state_change ha_promoted ha_demoted ha_replica_drop ha_replication_lag ha_resync
+Infra (Prometheus)|circuit_breaker backpressure wal_errors zmq_health zmq_disconnected zmq_stale share_loss orphan_rate_spike
+Infra (pool internals)|wal_stuck_entry block_drought share_db_critical share_db_degraded share_batch_dropped all_nodes_down chain_tip_stall daemon_no_peers daemon_low_peers wal_recovery_stuck miner_disconnect_spike node_health_low wal_disk_space_low wal_file_count_high false_rejection_rate retry_storm payment_processor_stalled db_failover ha_flapping block_maturity_stall goroutine_limit goroutine_growth multi_port_difficulty_spike multi_port_coin_switch
+Scheduled reports|6h_report weekly_report monthly_earnings quarterly_report special_date maintenance_reminder update_available
+EOF
+}
+
+# Return 0 if $1 is a known canonical alert type.
+_alerts_is_known() {
+    local needle="$1" group types t
+    while IFS='|' read -r group types; do
+        [[ -z "$group" ]] && continue
+        for t in $types; do
+            [[ "$t" == "$needle" ]] && return 0
+        done
+    done < <(_alerts_groups)
+    return 1
+}
+
+# Resolve the live Sentinel config path (primary home dir, ProtectHome fallback).
+_alerts_config_path() {
+    local pool_home
+    pool_home=$(getent passwd "$POOL_USER" 2>/dev/null | cut -d: -f6)
+    pool_home="${pool_home:-/home/$POOL_USER}"
+    local primary="${pool_home}/.spiralsentinel/config.json"
+    if [[ -f "$primary" ]]; then
+        echo "$primary"
+    elif [[ -f "$INSTALL_DIR/config/sentinel/config.json" ]]; then
+        echo "$INSTALL_DIR/config/sentinel/config.json"
+    else
+        echo "$primary"
+    fi
+}
+
+# Run a command as the Sentinel config owner ($POOL_USER) so the 0600-mode
+# config.json in that user's home is readable/writable. Root sudos without a
+# prompt; another login (e.g. spiralpool) may be asked for its sudo password.
+# stdin (heredocs) passes straight through to the target command.
+_alerts_as_owner() {
+    if [[ "$(id -un)" == "$POOL_USER" ]]; then
+        "$@"
+    else
+        sudo -u "$POOL_USER" "$@"
+    fi
+}
+
+cmd_alerts() {
+    local action="${1:-}"
+    local target="${2:-}"
+    local SENTINEL_CONFIG
+    SENTINEL_CONFIG=$(_alerts_config_path)
+
+    # No subcommand: open the interactive menu on a real terminal, else just list.
+    if [[ -z "$action" ]]; then
+        if [[ -t 0 && -t 1 ]]; then action="menu"; else action="list"; fi
+    fi
+
+    case "$action" in
+        list|show|status)
+            if [[ ! -f "$SENTINEL_CONFIG" ]]; then
+                log_error "Sentinel config not found: $SENTINEL_CONFIG"
+                echo "Run the installer first to create the config file."
+                exit 1
+            fi
+            local disabled_raw
+            if ! disabled_raw=$(_alerts_as_owner python3 - "$SENTINEL_CONFIG" <<'PYEOF'
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+except Exception as e:
+    sys.stderr.write("read error: %s\n" % e); sys.exit(3)
+_d = cfg.get("disabled_alerts", [])
+for a in (_d if isinstance(_d, list) else []):
+    print(a)
+PYEOF
+            ); then
+                log_error "Could not read Sentinel config (permission or parse error): $SENTINEL_CONFIG"
+                echo "Re-run with sudo, or as the $POOL_USER user."
+                exit 1
+            fi
+            echo ""
+            echo -e "${WHITE}SENTINEL ALERTS & REPORTS${NC}"
+            echo -e "─────────────────────────────────────────────────────────────────────────"
+            echo -e "  ${DIM}Config: $SENTINEL_CONFIG${NC}"
+            echo ""
+            local group types name
+            while IFS='|' read -r group types; do
+                [[ -z "$group" ]] && continue
+                echo -e "  ${CYAN}${group}${NC}"
+                for name in $types; do
+                    if grep -qxF "$name" <<<"$disabled_raw"; then
+                        printf "    ${RED}✗ %-28s DISABLED${NC}\n" "$name"
+                    else
+                        printf "    ${GREEN}✓ %-28s on${NC}\n" "$name"
+                    fi
+                done
+                echo ""
+            done < <(_alerts_groups)
+            echo -e "  ${DIM}block_found is always on and cannot be disabled.${NC}"
+            echo -e "  ${DIM}Disable with: spiralctl alerts disable <name>${NC}"
+            echo ""
+            ;;
+        disable|enable)
+            if [[ -z "$target" ]]; then
+                echo "Usage: spiralctl alerts $action <alert_type>"
+                echo "Run 'spiralctl alerts list' to see all names."
+                exit 1
+            fi
+            if [[ "$target" == "block_found" ]]; then
+                log_error "block_found cannot be disabled — you always want block notifications."
+                exit 1
+            fi
+            if ! _alerts_is_known "$target"; then
+                log_error "Unknown alert type: $target"
+                echo "Run 'spiralctl alerts list' to see valid names."
+                exit 1
+            fi
+            if [[ ! -f "$SENTINEL_CONFIG" ]]; then
+                log_error "Sentinel config not found: $SENTINEL_CONFIG"
+                exit 1
+            fi
+            if ! _alerts_as_owner python3 - "$SENTINEL_CONFIG" "$action" "$target" <<'PYEOF'
+import json, sys, os
+path, op, name = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    cfg = json.load(f)
+lst = cfg.get("disabled_alerts", [])
+if not isinstance(lst, list):
+    lst = []
+if op == "disable":
+    if name not in lst:
+        lst.append(name)
+else:
+    lst = [a for a in lst if a != name]
+cfg["disabled_alerts"] = sorted(set(lst))
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)          # atomic; preserves spiraluser ownership + 0600
+PYEOF
+            then
+                log_error "Failed to update Sentinel config (permission or parse error): $SENTINEL_CONFIG"
+                echo "Re-run with sudo, or as the $POOL_USER user."
+                exit 1
+            fi
+            if [[ "$action" == "disable" ]]; then
+                log_success "Alert '$target' disabled — Sentinel will no longer send it."
+            else
+                log_success "Alert '$target' re-enabled."
+            fi
+            echo ""
+            echo "Restart Sentinel to apply: sudo systemctl restart spiralsentinel"
+            ;;
+        reset)
+            if [[ ! -f "$SENTINEL_CONFIG" ]]; then
+                log_error "Sentinel config not found: $SENTINEL_CONFIG"
+                exit 1
+            fi
+            if ! _alerts_as_owner python3 - "$SENTINEL_CONFIG" <<'PYEOF'
+import json, sys, os
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+cfg["disabled_alerts"] = []
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)          # atomic; preserves spiraluser ownership + 0600
+PYEOF
+            then
+                log_error "Failed to update Sentinel config (permission or parse error): $SENTINEL_CONFIG"
+                echo "Re-run with sudo, or as the $POOL_USER user."
+                exit 1
+            fi
+            log_success "All alert mutes cleared — every alert re-enabled."
+            echo ""
+            echo "Restart Sentinel to apply: sudo systemctl restart spiralsentinel"
+            ;;
+        menu)
+            if ! [[ -t 0 && -t 1 ]]; then
+                log_error "The interactive menu needs a terminal."
+                echo "Use: spiralctl alerts list | disable <name> | enable <name>"
+                exit 1
+            fi
+            if [[ ! -f "$SENTINEL_CONFIG" ]]; then
+                log_error "Sentinel config not found: $SENTINEL_CONFIG"
+                echo "Run the installer first to create the config file."
+                exit 1
+            fi
+            # Load the current disabled set once, as the config owner.
+            local disabled_now
+            if ! disabled_now=$(_alerts_as_owner python3 - "$SENTINEL_CONFIG" <<'PYEOF'
+import json, sys
+try:
+    cfg = json.load(open(sys.argv[1]))
+except Exception as e:
+    sys.stderr.write("read error: %s\n" % e); sys.exit(3)
+_d = cfg.get("disabled_alerts", [])
+for a in (_d if isinstance(_d, list) else []):
+    print(a)
+PYEOF
+            ); then
+                log_error "Could not read Sentinel config (permission or parse error): $SENTINEL_CONFIG"
+                echo "Re-run with sudo, or as the $POOL_USER user."
+                exit 1
+            fi
+
+            # Flatten the grouped catalog into index-aligned name/group arrays.
+            local -a _names=() _glabel=()
+            local group types name
+            while IFS='|' read -r group types; do
+                [[ -z "$group" ]] && continue
+                for name in $types; do
+                    _names+=("$name"); _glabel+=("$group")
+                done
+            done < <(_alerts_groups)
+
+            # Current disabled set as an associative "off" map, edited in memory.
+            local -A _off=()
+            local d
+            while IFS= read -r d; do
+                [[ -n "$d" ]] && _off["$d"]=1
+            done <<<"$disabled_now"
+
+            local choice sel i last_group changed=0
+            while true; do
+                clear 2>/dev/null || true
+                echo -e "${WHITE}SENTINEL ALERTS — interactive toggle${NC}"
+                echo -e "─────────────────────────────────────────────────────────────────────────"
+                echo -e "  ${DIM}Config: $SENTINEL_CONFIG${NC}"
+                last_group=""
+                for i in "${!_names[@]}"; do
+                    if [[ "${_glabel[$i]}" != "$last_group" ]]; then
+                        echo ""; echo -e "  ${CYAN}${_glabel[$i]}${NC}"; last_group="${_glabel[$i]}"
+                    fi
+                    if [[ -n "${_off[${_names[$i]}]:-}" ]]; then
+                        printf "   ${RED}%3d) [x] %-28s DISABLED${NC}\n" "$((i+1))" "${_names[$i]}"
+                    else
+                        printf "   %3d) [ ] %-28s on\n" "$((i+1))" "${_names[$i]}"
+                    fi
+                done
+                echo ""
+                echo -e "  ${DIM}block_found is always on and cannot be disabled.${NC}"
+                echo ""
+                echo -ne "  ${WHITE}Toggle #${NC} (or name) · ${WHITE}r${NC}=reset all · ${WHITE}s${NC}=save & restart · ${WHITE}q${NC}=quit: "
+                read -r choice || { echo; choice="q"; }
+                case "$choice" in
+                    q|Q) echo "  No changes saved."; return 0 ;;
+                    r|R) _off=(); changed=1 ;;
+                    s|S) break ;;
+                    "" ) : ;;
+                    *)
+                        sel=""
+                        if [[ "$choice" =~ ^[0-9]+$ ]] && (( 10#$choice >= 1 && 10#$choice <= ${#_names[@]} )); then
+                            sel="${_names[$((10#$choice - 1))]}"
+                        elif _alerts_is_known "$choice"; then
+                            sel="$choice"
+                        fi
+                        if [[ -z "$sel" ]]; then
+                            echo "  ? '$choice' not recognized — press Enter"; read -r _ || true; continue
+                        fi
+                        if [[ -n "${_off[$sel]:-}" ]]; then unset '_off[$sel]'; else _off["$sel"]=1; fi
+                        changed=1
+                        ;;
+                esac
+            done
+
+            if [[ "$changed" == "0" ]]; then
+                echo "  No changes to save."
+                return 0
+            fi
+            # Persist the whole set atomically, as the owner (names passed as argv).
+            if ! _alerts_as_owner python3 - "$SENTINEL_CONFIG" "${!_off[@]}" <<'PYEOF'
+import json, sys, os
+path = sys.argv[1]
+names = sorted(set(sys.argv[2:]))
+with open(path) as f:
+    cfg = json.load(f)
+cfg["disabled_alerts"] = names
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)          # atomic; preserves spiraluser ownership + 0600
+PYEOF
+            then
+                log_error "Failed to update Sentinel config (permission or parse error): $SENTINEL_CONFIG"
+                echo "Re-run with sudo, or as the $POOL_USER user."
+                exit 1
+            fi
+            log_success "Saved — ${#_off[@]} alert(s) disabled."
+            echo ""
+            echo -ne "  Restart Sentinel now to apply? [Y/n]: "
+            read -r yn || yn="n"
+            if [[ ! "$yn" =~ ^[Nn] ]]; then
+                if sudo systemctl restart spiralsentinel; then
+                    log_success "Sentinel restarted."
+                else
+                    log_error "Restart failed — run: sudo systemctl restart spiralsentinel"
+                fi
+            else
+                echo "  Apply later with: sudo systemctl restart spiralsentinel"
+            fi
+            ;;
+        *)
+            echo "Usage: spiralctl alerts [command] [alert_type]"
+            echo ""
+            echo "Commands:"
+            echo "  menu                      Interactive toggle menu (default with no args)"
+            echo "  list                      Show every alert/report and its on/off state"
+            echo "  disable <alert_type>      Stop sending a specific alert or report"
+            echo "  enable  <alert_type>      Resume sending it"
+            echo "  reset                     Re-enable everything (clear all mutes)"
+            echo ""
+            echo "Examples:"
+            echo "  spiralctl alerts"
+            echo "  spiralctl alerts list"
+            echo "  spiralctl alerts disable difficulty_change"
+            echo "  spiralctl alerts disable weekly_report"
+            echo "  spiralctl alerts enable difficulty_change"
+            echo ""
+            echo "Notes:"
+            echo "  - Reports are alert types too: 6h_report, weekly_report,"
+            echo "    monthly_earnings, quarterly_report."
+            echo "  - block_found can never be disabled."
+            echo "  - Changes require a Sentinel restart to take effect."
             exit 1
             ;;
     esac
@@ -6218,6 +6609,9 @@ show_help() {
     echo "    config notify-test  Send a test notification to every configured channel"
     echo "    config list-cooldowns"
     echo "                        Show active alert cooldowns with time remaining"
+    echo "    alerts [menu|list|disable|enable|reset] [alert_type]"
+    echo "                        Turn individual alerts & reports on or off"
+    echo "                        (run 'spiralctl alerts' for an interactive menu)"
     echo "    log [errors] [service] [window]"
     echo "                        Filter service logs for errors/warnings (default: 1h)"
     echo "                        Services: stratum, sentinel, dash, patroni, ha"
@@ -7698,6 +8092,7 @@ main() {
         # Configuration & notifications
         config)     cmd_config "$@" ;;
         webhook)    cmd_webhook "$@" ;;
+        alerts)     cmd_alerts "$@" ;;
 
         # Security (also: security fail2ban [...], security tor [...])
         security)   cmd_security "$@" ;;

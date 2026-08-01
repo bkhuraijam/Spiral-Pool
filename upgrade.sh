@@ -4541,7 +4541,7 @@ echo -e "${CYAN}             ░███${NC}"
 echo -e "${CYAN}             █████${NC}"
 echo -e "${CYAN}            ░░░░░${NC}"
 echo -e "                                 ${MAGENTA}Multi-Algorithm Solo Mining Pool${NC}"
-echo -e "                                     ${DIM}V2.6.0 - SPIRAL CITADEL${NC}"
+echo -e "                                     ${DIM}V2.6.3 - SPIRAL CITADEL${NC}"
 echo ""
 echo -e "  ${STATUS_COLOR}${STATUS_ICON}${NC} Stratum: ${STATUS_COLOR}${POOL_STATUS}${NC}    ${DASH_COLOR}${DASH_ICON}${NC} Dash: ${DASH_COLOR}${DASH_STATUS}${NC}    ${SENT_COLOR}${SENT_ICON}${NC} Sentinel: ${SENT_COLOR}${SENT_STATUS}${NC}"
 echo -e "    Uptime: ${GREEN}${UPTIME}${NC}    Load: ${GREEN}${LOAD}${NC}"
@@ -4557,6 +4557,7 @@ echo -e "    ${YELLOW}spiralctl coin enable${NC}    Add coin       ${YELLOW}spir
 echo -e "    ${YELLOW}spiralctl coin-upgrade${NC}   Upgrade nodes  ${YELLOW}spiralctl restart${NC}          Restart services"
 echo -e "${CYAN}━━━ MANAGEMENT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "    ${YELLOW}spiralctl config${NC}         Configuration  ${YELLOW}spiralctl security${NC}         Security audit"
+echo -e "    ${YELLOW}spiralctl alerts${NC}         Alerts on/off  ${YELLOW}spiralctl webhook${NC}          Notifications"
 echo -e "    ${YELLOW}spiralctl data backup${NC}    Backup         ${YELLOW}spiralctl data restore${NC}     Restore"
 echo -e "    ${YELLOW}spiralctl test${NC}           Connectivity   ${YELLOW}spiralctl ha${NC}               HA cluster"
 echo -e "    ${CYAN}▶  spiralctl help${NC}          Full command reference"
@@ -4688,7 +4689,7 @@ migrate_daemon_sudoers() {
 
     if ! grep -q "ecashd" "$DASH_SUDOERS" 2>/dev/null; then
         echo "" >> "$DASH_SUDOERS"
-        echo "# XEC (eCash) daemon control (v2.6.0)" >> "$DASH_SUDOERS"
+        echo "# XEC (eCash) daemon control (v2.6.3)" >> "$DASH_SUDOERS"
         echo "$POOL_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart ecashd" >> "$DASH_SUDOERS"
         changed=1
     fi
@@ -5160,6 +5161,24 @@ show_summary() {
 
         local status; status=$(systemctl is-active "$service" 2>/dev/null) || true
         [[ -z "$status" ]] && status="inactive"
+
+        # Stratum has Restart=always + a long ExecStartPre node-wait, so a single
+        # snapshot taken right after the bulk restart often catches it mid-restart
+        # (failed/auto-restart/activating) even though systemd brings it online a
+        # few seconds later. Poll it to let systemd settle before declaring FAILED —
+        # matches the retry logic used elsewhere for stratum startup.
+        if [[ "$service" == "$STRATUM_SERVICE" && "$status" != "active" ]]; then
+            echo -e "  ${DIM}Verifying $service (auto-restarts, may take up to 60s)...${NC}"
+            local _sw=0
+            local _sw_max=60
+            while [[ $_sw -lt $_sw_max ]]; do
+                status=$(systemctl is-active "$service" 2>/dev/null) || true
+                [[ -z "$status" ]] && status="inactive"
+                [[ "$status" == "active" ]] && break
+                sleep 3; _sw=$((_sw + 3))
+            done
+        fi
+
         case "$status" in
             active)       printf "  %-24s ${GREEN}%s${NC}\n" "$service" "Running" ;;
             activating)   printf "  %-24s ${CYAN}%s${NC}\n" "$service" "Starting"; all_active=false ;;
@@ -5209,16 +5228,16 @@ show_summary() {
                 printf "  %-6s  %s → %s  %b%s%b\n" \
                     "$coin" "$installed" "$target" "$risk_color" "$risk" "${NC}"
             done <<< "$upgrade_lines"
-            # DigiByte v9.26.3 is a special MAJOR case: it removes pruning support
-            # (DigiDollar forces txindex on mainnet). Call it out explicitly so the
-            # operator knows a pruned DGB node will resync before running the upgrade.
+            # DigiByte v9.26.5 fixes the DigiDollar oracle startup scan that stalled node
+            # init for 15+ minutes; nodes still on 9.26.3 also cross v9.26.4's narrowly-
+            # scoped consensus rule. Call it out so operators know it is an in-place
+            # binary swap (no reindex) that also offers to enable pruning.
             if grep -q '^DGB ' <<< "$upgrade_lines"; then
                 echo
-                echo -e "${RED}  ⚠  DigiByte (DGB) v9.26.3 is a MAJOR upgrade — pruning is removed.${NC}"
-                echo -e "${RED}     It requires txindex for DigiDollar and will not run pruned.${NC}"
-                echo -e "     If your DGB node is pruned, coin-upgrade.sh will ask you to confirm"
-                echo -e "     disk space (~80 GB) and accept a full chain resync. Nothing else is"
-                echo -e "     touched — wallets, configs, and other coins are left intact."
+                echo -e "${CYAN}  ℹ  DigiByte (DGB) v9.26.5 fixes a DigiDollar oracle startup stall and${NC}"
+                echo -e "${CYAN}     enables optional pruning. In-place binary swap — no reindex.${NC}"
+                echo -e "     coin-upgrade.sh will offer to switch DGB to a pruned node (prune=5000,"
+                echo -e "     ~5 GB, prunes in place). Wallets, configs, and other coins are untouched."
             fi
             echo
             echo -e "${CYAN}Coin daemon upgrades are NOT applied automatically — they may${NC}"
@@ -5296,7 +5315,7 @@ PYEOF
         coin_lines+="**${coin}** — ${installed} → ${target} (${risk_label})\n"
     done <<< "$upgrade_lines"
     if grep -q '^DGB ' <<< "$upgrade_lines"; then
-        coin_lines+="\n⚠ **DigiByte removes pruning** (DigiDollar requires txindex). A pruned DGB node will fully resync (~80 GB); coin-upgrade.sh confirms disk space and preserves wallets/configs.\n"
+        coin_lines+="\nℹ **DigiByte v9.26.5** fixes a DigiDollar oracle startup stall that held node init for 15+ minutes, and enables optional pruning. In-place binary swap (no reindex); coin-upgrade.sh offers to switch DGB to a pruned node and preserves wallets/configs.\n"
     fi
 
     local embed
@@ -5315,7 +5334,7 @@ embed = {
         "```\nsudo /spiralpool/scripts/coin-upgrade.sh\n```"
     ),
     "color": 0xFF6B35,
-    "footer": {"text": "Spiral Pool v2.6.0 — Spiral Citadel  •  coin-upgrade.sh handles the chain resync risk"}
+    "footer": {"text": "Spiral Pool v2.6.3 — Spiral Citadel  •  coin-upgrade.sh handles the chain resync risk"}
 }
 print(json.dumps(embed))
 PYEOF
