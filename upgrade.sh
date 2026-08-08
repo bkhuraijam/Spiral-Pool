@@ -3494,7 +3494,7 @@ build_stratum() {
     if [[ -d "${STRATUM_SOURCE}/.git" ]] || [[ -d "${PROJECT_ROOT}/.git" ]]; then
         git_commit=$(git -C "${PROJECT_ROOT}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
     fi
-    local ldflags="-X main.Version=${TARGET_VERSION} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.GitCommit=${git_commit} -X github.com/spiralpool/stratum/internal/ha.SpiralPoolVersion=${TARGET_VERSION}"
+    local ldflags="-X main.Version=${TARGET_VERSION} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.GitCommit=${git_commit} -X github.com/spiralpool/stratum/internal/ha.SpiralPoolVersion=${TARGET_VERSION} -X github.com/spiralpool/stratum/internal/api.Version=${TARGET_VERSION}"
 
     # ZMQ support: The stratum uses go-zeromq/zmq4 (pure Go, no C library needed).
     # Always build with ZMQ enabled — the nozmq tag is only for minimal/test builds.
@@ -4541,7 +4541,7 @@ echo -e "${CYAN}             ░███${NC}"
 echo -e "${CYAN}             █████${NC}"
 echo -e "${CYAN}            ░░░░░${NC}"
 echo -e "                                 ${MAGENTA}Multi-Algorithm Solo Mining Pool${NC}"
-echo -e "                                     ${DIM}V2.6.3 - SPIRAL CITADEL${NC}"
+echo -e "                                     ${DIM}V2.6.5 - SPIRAL CITADEL${NC}"
 echo ""
 echo -e "  ${STATUS_COLOR}${STATUS_ICON}${NC} Stratum: ${STATUS_COLOR}${POOL_STATUS}${NC}    ${DASH_COLOR}${DASH_ICON}${NC} Dash: ${DASH_COLOR}${DASH_STATUS}${NC}    ${SENT_COLOR}${SENT_ICON}${NC} Sentinel: ${SENT_COLOR}${SENT_STATUS}${NC}"
 echo -e "    Uptime: ${GREEN}${UPTIME}${NC}    Load: ${GREEN}${LOAD}${NC}"
@@ -4580,6 +4580,69 @@ MOTDEOF
 
     sudo chmod +x /etc/update-motd.d/00-spiralpool
     log_success "MOTD updated"
+}
+
+# ============================================================================
+# One-time: lower DGB job_rebroadcast from the old 30s default to 5s.
+#
+# v2.6.5 changed the shipped default in config.example.yaml, but an upgrade
+# never overwrites a deployed config.yaml — so an existing DigiByte pool would
+# keep 30s indefinitely. That is more than twice DGB's 15-second block time,
+# where every other coin sits at a third to a tenth of its own, and where
+# DGB-Scrypt (the same chain) already shipped 5s. It is also what the job
+# manager's own coin-aware fallback computes for a 15s coin.
+#
+# Deliberately narrow. Only the exact value the old template shipped ("30s")
+# is rewritten, and only inside a DGB or DGB-SCRYPT coin block. An operator who
+# tuned this to anything else keeps their choice, and every other coin is
+# untouched. Idempotent: once the value is 5s there is nothing left to match.
+#
+# Scoped to the v2 multi-coin config layout (a list of "- symbol:" blocks).
+# A pre-v2 config has no such blocks, so sym never matches and the file is
+# left alone — correct, if conservative.
+# ============================================================================
+migrate_dgb_job_rebroadcast() {
+    local config="${INSTALL_DIR}/config/config.yaml"
+    [[ -f "$config" ]] || return 0
+
+    # Gate on the upgrade actually crossing into 2.6.5. Value-matching alone is
+    # narrow but NOT one-time: without this the migration re-runs on every future
+    # upgrade, so an operator who deliberately sets 30s back later would have it
+    # silently flipped again. An install already at or past 2.6.5 has had its
+    # chance to be migrated, and any 30s there is a choice, not a stale default.
+    local from="${CURRENT_VERSION:-unknown}"
+    [[ "$from" == "unknown" || -z "$from" ]] && from="0"
+    if [[ "$from" == "2.6.5" ]] || \
+       [[ "$(printf '%s\n%s\n' "$from" "2.6.5" | sort -V | head -1)" != "$from" ]]; then
+        return 0
+    fi
+
+    local tmp="${config}.jrb.$$"
+    if awk '
+        /^[[:space:]]*-[[:space:]]*symbol:/ {
+            line = $0
+            sub(/^[^:]*:[[:space:]]*/, "", line)   # drop "  - symbol: "
+            sub(/[[:space:]]*#.*$/, "", line)      # drop trailing comment
+            gsub(/["'"'"']/, "", line)             # drop quotes
+            sub(/[[:space:]]+$/, "", line)
+            sym = line
+        }
+        (sym == "DGB" || sym == "DGB-SCRYPT") &&
+        /^[[:space:]]*job_rebroadcast:[[:space:]]*30s([[:space:]]|#|$)/ {
+            sub(/30s/, "5s")
+            changed = 1
+        }
+        { print }
+        END { exit (changed ? 0 : 1) }
+    ' "$config" > "$tmp" && [[ -s "$tmp" ]]; then
+        cp -p "$config" "${config}.bak.jobrebroadcast"
+        # Write through the existing inode so ownership and mode 600 survive.
+        cat "$tmp" > "$config"
+        rm -f "$tmp"
+        log_success "DGB job_rebroadcast lowered 30s -> 5s (backup: ${config}.bak.jobrebroadcast)"
+    else
+        rm -f "$tmp"
+    fi
 }
 
 migrate_ha_sudoers() {
@@ -5334,7 +5397,7 @@ embed = {
         "```\nsudo /spiralpool/scripts/coin-upgrade.sh\n```"
     ),
     "color": 0xFF6B35,
-    "footer": {"text": "Spiral Pool v2.6.3 — Spiral Citadel  •  coin-upgrade.sh handles the chain resync risk"}
+    "footer": {"text": "Spiral Pool v2.6.5 — Spiral Citadel  •  coin-upgrade.sh handles the chain resync risk"}
 }
 print(json.dumps(embed))
 PYEOF
@@ -5681,24 +5744,29 @@ SSHDEOF
         exit 1
     fi
 
-    # Wallet reminder — shown before any changes are made
-    echo -e "${RED}╔══════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║${NC}  ${WHITE}⚠  WALLET BACKUP REMINDER${NC}                                        ${RED}║${NC}"
-    echo -e "${RED}╚══════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "  If your pool wallet was generated on this server, your private keys"
-    echo -e "  are stored in ${WHITE}/spiralpool/backups/${NC} and in each coin's data directory."
-    echo ""
-    echo -e "  ${YELLOW}Before upgrading:${NC}"
-    echo -e "  ${YELLOW}•${NC} Confirm you have a copy of every wallet.dat off this server"
-    echo -e "  ${YELLOW}•${NC} SCP any missing backups now — upgrade will also prompt per coin"
-    echo -e "  ${YELLOW}•${NC} Store backups in at least two offline locations"
-    echo ""
-    echo -e "  Run ${WHITE}sudo bash scripts/linux/wallet-backup.sh${NC} if unsure."
-    echo ""
-    printf "  Press ENTER to confirm you have read this and continue: "
-    read -r _upgrade_wallet_ack
-    echo ""
+    # Wallet reminder — shown before any changes are made.
+    # Skipped in --auto / non-TTY: the acknowledgement is a no-op without an
+    # operator, and the banner would otherwise leak ANSI escapes into callers
+    # that capture stdout (e.g. the dashboard's pool-upgrade endpoint).
+    if [[ "$AUTO_MODE" != "true" ]] && [[ -t 0 ]]; then
+        echo -e "${RED}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║${NC}  ${WHITE}⚠  WALLET BACKUP REMINDER${NC}                                        ${RED}║${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "  If your pool wallet was generated on this server, your private keys"
+        echo -e "  are stored in ${WHITE}/spiralpool/backups/${NC} and in each coin's data directory."
+        echo ""
+        echo -e "  ${YELLOW}Before upgrading:${NC}"
+        echo -e "  ${YELLOW}•${NC} Confirm you have a copy of every wallet.dat off this server"
+        echo -e "  ${YELLOW}•${NC} SCP any missing backups now — upgrade will also prompt per coin"
+        echo -e "  ${YELLOW}•${NC} Store backups in at least two offline locations"
+        echo ""
+        echo -e "  Run ${WHITE}sudo bash scripts/linux/wallet-backup.sh${NC} if unsure."
+        echo ""
+        printf "  Press ENTER to confirm you have read this and continue: "
+        read -r _upgrade_wallet_ack
+        echo ""
+    fi
 
     # Execute upgrade
     create_backup
@@ -5797,6 +5865,9 @@ SSHDEOF
     migrate_ha_sudoers
     migrate_daemon_sudoers
     migrate_dashboard_https
+    # Must run before start_services so the new interval is picked up by the
+    # same restart, rather than needing a second one.
+    migrate_dgb_job_rebroadcast
     update_motd
     update_version_file
     update_upgrade_script

@@ -19,7 +19,7 @@ ASIC Miner API Protocol References (protocol documentation, not derived code):
 See LICENSE file for full BSD-3-Clause license terms.
 """
 
-__version__ = "2.6.3"
+__version__ = "2.6.5"
 
 import os
 import json
@@ -881,8 +881,17 @@ WALLET_PATTERNS = {
     'NMC': re.compile(r'^[NM][a-km-zA-HJ-NP-Z1-9]{25,34}$|^nc1q[a-z0-9]{38,58}$'),
     # SYS - Syscoin: sys1q for bech32, S for legacy
     'SYS': re.compile(r'^S[a-km-zA-HJ-NP-Z1-9]{25,34}$|^sys1q[a-z0-9]{38,58}$'),
-    # XMY - Myriad: M prefix for P2PKH
-    'XMY': re.compile(r'^M[a-km-zA-HJ-NP-Z1-9]{25,34}$'),
+    # XMY - Myriad: M prefix for P2PKH (PUBKEY_ADDRESS=50); SCRIPT_ADDRESS=9 encodes
+    # to a leading '4' for ~94% of hashes and '5' for the rest, so both are accepted.
+    # Also bech32 (hrp "my"): my1q for witness v0 only — P2WPKH (38) and P2WSH (58).
+    # Witness v1 (my1p, Taproot) is deliberately NOT accepted: Myriad deploys
+    # SEGWIT but has no DEPLOYMENT_TAPROOT in chainparams, so a v1 output is
+    # anyone-can-spend on this chain and a coinbase paying one could be swept.
+    'XMY': re.compile(
+        r'^[45M][a-km-zA-HJ-NP-Z1-9]{25,34}$|'
+        r'^my1q[a-z0-9]{38}$|'
+        r'^my1q[a-z0-9]{58}$'
+    ),
     # === Additional Scrypt Coins ===
     # PEP - Pepecoin: P prefix
     'PEP': re.compile(r'^P[a-km-zA-HJ-NP-Z1-9]{25,34}$'),
@@ -14308,6 +14317,13 @@ def apply_pool_upgrade():
     if not check_rate_limit(client_ip, "pool_upgrade"):
         return jsonify({"success": False, "error": "Rate limit exceeded"}), 429
 
+    # upgrade.sh emits ANSI colour codes. Strip them before truncating so a
+    # slice can't cut an escape sequence in half and leak raw bytes to the UI.
+    ansi_re = re.compile(r'\x1B(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*\x07)')
+
+    def _tail(text):
+        return ansi_re.sub('', text or '')[-500:]
+
     try:
         # Run upgrade.sh --auto in background — it will restart services itself
         result = subprocess.run(
@@ -14322,14 +14338,14 @@ def apply_pool_upgrade():
             return jsonify({
                 "success": True,
                 "message": "Upgrade complete. Services are restarting.",
-                "output": result.stdout[-500:] if result.stdout else ""
+                "output": _tail(result.stdout)
             })
         else:
             app.logger.warning(f"Pool upgrade failed for {client_ip}: {result.stderr[:200]}")
             return jsonify({
                 "success": False,
                 "error": "Upgrade failed",
-                "output": result.stderr[-500:] if result.stderr else result.stdout[-500:]
+                "output": _tail(result.stderr) if result.stderr else _tail(result.stdout)
             })
     except subprocess.TimeoutExpired:
         return jsonify({"success": False, "error": "Upgrade timed out (5 min limit)"})
@@ -15571,7 +15587,7 @@ def test_discord_webhook(url: str, test_message: str = None) -> dict:
         "title": "🧪 Spiral Pool Test Notification",
         "description": test_message or "This is a test message from Spiral Dashboard. If you see this, your webhook is configured correctly!",
         "color": 0x00d4ff,  # Cyan color
-        "footer": {"text": f"Spiral Pool v2.6.3"},
+        "footer": {"text": f"Spiral Pool v2.6.5"},
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
