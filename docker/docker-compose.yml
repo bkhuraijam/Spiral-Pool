@@ -123,7 +123,7 @@ services:
       resources:
         limits:
           cpus: '10'
-          memory: 12G
+          memory: 8G
         reservations:
           memory: 4G
     ulimits:
@@ -167,7 +167,7 @@ services:
       resources:
         limits:
           cpus: '10'
-          memory: 12G
+          memory: 10G
         reservations:
           memory: 4G
     ulimits:

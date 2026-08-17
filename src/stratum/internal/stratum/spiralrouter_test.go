@@ -108,6 +108,10 @@ func TestSpiralRouterDetection(t *testing.T) {
 		// ========================================================================
 		// TIER 4: LOTTERY miners
 		// ========================================================================
+		{"NMMiner/v0.6.30", MinerClassLottery, "NMMiner"},
+		{"NMMiner/v0.6.30 (ESP32-S3)", MinerClassLottery, "NMMiner"}, // esp32 must not win
+		{"nmminer1024", MinerClassLottery, "NMMiner"},
+		{"LeafMiner/1.0", MinerClassLottery, "LeafMiner"},
 		{"nminer/1.0", MinerClassLottery, "NMiner"},
 		{"NMiner", MinerClassLottery, "NMiner"},
 		{"bitmaker", MinerClassLottery, "BitMaker"},
@@ -170,6 +174,8 @@ func TestSpiralRouterDifficulties(t *testing.T) {
 		// ========================================================================
 		{"NerdMinerV2/2.6.0", 0.001},
 		{"HAN_SOLOminer/1.0", 0.001},
+		{"NMMiner/v0.6.30", 0.001},
+		{"LeafMiner/1.0", 0.001},
 		{"nminer/1.0", 0.001},
 		{"NMiner", 0.001},
 		{"bitmaker", 0.001},
@@ -602,8 +608,10 @@ func TestDeviceHintClassification(t *testing.T) {
 		// BitAxe Hex (6 chips)
 		{&DeviceHint{IP: "1.1.1.4", DeviceModel: "BitAxe Hex", ASICModel: "BM1366", ASICCount: 6}, MinerClassMid},
 
-		// Antminer S19
-		{&DeviceHint{IP: "1.1.1.5", DeviceModel: "Antminer S19 Pro", ASICModel: "BM1398", ASICCount: 76}, MinerClassPro},
+		// Antminer S19 — dedicated tier since v2.7.0. Previously MinerClassPro,
+		// which also holds S21 and Whatsminer M50+ at 200T+; sharing one vardiff
+		// range across a 2x hashrate spread drove avoidable rejects on S19s.
+		{&DeviceHint{IP: "1.1.1.5", DeviceModel: "Antminer S19 Pro", ASICModel: "BM1398", ASICCount: 76}, MinerClassS19},
 
 		// ESP32 Miner (lottery)
 		{&DeviceHint{IP: "1.1.1.6", DeviceModel: "ESP32 Miner", ASICModel: "", ASICCount: 0}, MinerClassLottery},
