@@ -20496,8 +20496,12 @@ def monitor_loop(state):
                 try:
                     zmq_health = int(_infra_health.metrics.get("stratum_zmq_health_status", 2))
                     zmq_connected = int(_infra_health.metrics.get("stratum_zmq_connected", 1))
-                    # Alert when ZMQ is degraded/failed OR disconnected
-                    if zmq_health >= 3 or zmq_connected == 0:
+                    # Health status is the source of truth: 0=disabled, 1=connecting, 2=healthy,
+                    # 3=degraded, 4=failed. Only degraded/failed is an outage. Do NOT also gate on
+                    # zmq_connected -- connecting (startup, before the first block notification)
+                    # reports connected=0, which would fire a false alarm on every restart and
+                    # leave zmq_disconnected_alerted stuck true, masking the next real outage.
+                    if zmq_health >= 3:
                         if not state.zmq_disconnected_alerted:
                             alert_key = "zmq_disconnected"
                             last_alert = state.last_alerts.get(alert_key, 0)
@@ -20507,7 +20511,7 @@ def monitor_loop(state):
                                 state.last_alerts[alert_key] = current_time
                                 state.zmq_disconnected_alerted = True
                                 logger.warning(f"ZMQ DISCONNECTED: health={zmq_health} connected={zmq_connected}")
-                    elif zmq_health <= 2 and zmq_connected == 1:
+                    else:
                         state.zmq_disconnected_alerted = False
                 except Exception as e:
                     logger.debug(f"ZMQ socket health check error: {e}")

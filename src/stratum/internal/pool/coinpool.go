@@ -867,9 +867,10 @@ func (cp *CoinPool) setupCallbacks() {
 		cp.logger.Infow("ZMQ status update",
 			"status", status.String(),
 		)
-		// Update Prometheus metric for Sentinel monitoring
+		// Update Prometheus metrics for Sentinel monitoring
 		if cp.metricsServer != nil {
 			cp.metricsServer.SetZMQHealthStatus(int(status))
+			cp.metricsServer.SetZMQConnected(status.IsConnected())
 		}
 	})
 }

@@ -35,6 +35,11 @@ func (s ZMQStatus) String() string {
 	return "disabled"
 }
 
+// IsConnected always reports false: ZMQ is compiled out in this build.
+func (s ZMQStatus) IsConnected() bool {
+	return false
+}
+
 // ZMQListener is a stub implementation when ZMQ is not available
 type ZMQListener struct {
 	logger *zap.SugaredLogger

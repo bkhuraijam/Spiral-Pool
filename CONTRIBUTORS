@@ -91,9 +91,15 @@ v2.7.1 (Spiral Citadel) — reporting and celebration release
     auto-restart cooldown defect — a restart timestamp recorded only on success,
     so an un-restartable miner was retried every monitor cycle — was found in
     the same audit and is unrelated to any reported symptom.
-  - The test-endpoint and auto-restart fixes were applied in place on this tag
-    after the release commit, and are recorded in the changelog under this
-    version rather than a new one, per the project's patch-in-place policy.
+  - The ZMQ alerting defect — a Prometheus gauge registered and exported but
+    never written, so Sentinel raised a false "ZMQ CONNECTION LOST" on every
+    start and then latched, masking the real thing — was found by the operator
+    reporting that alert on a healthy pool, and traced from there. No external
+    reporter.
+  - The test-endpoint, auto-restart and ZMQ alerting fixes were applied in
+    place on this tag after the release commit, and are recorded in the
+    changelog under this version rather than a new one, per the project's
+    patch-in-place policy.
   - The per-coin statistics defects were located from a field report by
     Pencreus, credited above. The reported correlation (only coins that had
     never taken a dedicated-port connection were affected) turned out to be
