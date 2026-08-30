@@ -2964,7 +2964,18 @@ func (cp *CoinPool) GetPoolEffort() float64 {
 	lastBlock := cp.lastBlockTime
 	cp.lastBlockTimeMu.Unlock()
 	if lastBlock.IsZero() {
-		return 0
+		// This pool has never found a block and the database had none to seed
+		// from, so the current round began when the pool started. Returning 0
+		// here reported zero effort indefinitely for any coin yet to find its
+		// first block, however long it had been submitting shares — which is
+		// exactly the case where effort is the number an operator wants.
+		// Round start is approximated by process start: the true value is not
+		// recoverable once startup pruning has cleared the shares table, so
+		// this resets on restart until the first block lands.
+		lastBlock = cp.startTime
+	}
+	if lastBlock.IsZero() {
+		return 0 // Start() has not run yet
 	}
 	elapsedSeconds := time.Since(lastBlock).Seconds()
 	expectedSeconds := (netDiff * 4294967296) / poolHashrate

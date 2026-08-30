@@ -1319,6 +1319,13 @@ func (c *Coordinator) retryFailedCoinsLoop(ctx context.Context) {
 					// Without this, multi-port miners are never routed to recovered coins.
 					if c.multiServer != nil {
 						c.multiServer.RegisterCoinPool(s.pool)
+						// Wire the session provider too. startMultiPort() only reaches
+						// the pools that existed when it ran, so a coin whose daemon was
+						// not ready at startup was routed smart-port work but kept a nil
+						// multiPortSessions — leaving GetConnections() and
+						// GetActiveConnections() reporting only its dedicated-port
+						// sessions, i.e. 0 for a coin nobody connects to directly.
+						s.pool.SetMultiPortSessionProvider(&multiPortSessionAdapter{coord: c})
 					}
 					if c.diffMonitor != nil {
 						coinImpl, _ := coin.Create(s.pool.Symbol())

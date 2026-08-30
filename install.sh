@@ -14,7 +14,7 @@ head -c50 "$0"|od -c|grep -q '\\r'&&{ find "$(dirname "$0")" -type f \( -name "*
 # ║                                                                            ║
 # ║   Spiral Pool Contributors                                                 ║
 # ║                                                                            ║
-# ║   Version: 2.7.0                                                         ║
+# ║   Version: 2.7.1                                                         ║
 # ║   License: BSD-3-Clause (see LICENSE file)                                 ║
 # ║                                                                            ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
@@ -36,7 +36,7 @@ SCRIPT_DIR_EARLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR_EARLY/VERSION" ]]; then
     VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR_EARLY/VERSION")
 else
-    VERSION="2.7.0"
+    VERSION="2.7.1"
 fi
 INSTALL_DIR="/spiralpool"
 # Record whether the install directory already existed before this run started.
@@ -16582,7 +16582,7 @@ echo -e "${CYAN}             ░███${NC}"
 echo -e "${CYAN}             █████${NC}"
 echo -e "${CYAN}            ░░░░░${NC}"
 echo -e "                                 ${MAGENTA}Multi-Algorithm Solo Mining Pool${NC}"
-echo -e "                                     ${DIM}V2.7.0 — SPIRAL CITADEL${NC}"
+echo -e "                                     ${DIM}V2.7.1 — SPIRAL CITADEL${NC}"
 echo ""
 echo -e "  ${POOL_C}${POOL_I}${NC} Stratum    ${POOL_C}${POOL_P}${NC}   ${DASH_C}${DASH_I}${NC} Dashboard   ${DASH_C}${DASH_P}${NC}   ${SENT_C}${SENT_I}${NC} Sentinel   ${SENT_C}${SENT_P}${NC}"
 echo -e "  ${DIM}Uptime:${NC} ${GREEN}${UPTIME}${NC}   ${DIM}Load:${NC} ${GREEN}${LOAD}${NC}   ${DIM}Mem:${NC} ${GREEN}${MEM_USED}/${MEM_TOTAL}${NC}   ${DIM}Disk:${NC} ${GREEN}${DISK_USED}${NC}"
@@ -23319,7 +23319,7 @@ build_stratum() {
     }
 
     # Read version for ldflags injection (matches upgrade.sh behavior)
-    local BUILD_VERSION="2.7.0"
+    local BUILD_VERSION="2.7.1"
     if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
         BUILD_VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")
     fi
@@ -32423,11 +32423,11 @@ echo -e "    Worker:  ${WHITE}$NEW_ADDRESS.worker_name${NC}"
 echo ""
 WALLETEOF
 
-    # V2.7.0-SPIRAL_CITADEL: Create backup command
+    # V2.7.1-SPIRAL_CITADEL: Create backup command
     sudo tee /usr/local/bin/spiralpool-backup > /dev/null << 'BACKUPEOF'
 #!/bin/bash
 #
-# Spiral Pool Backup Utility - V2.7.0-SPIRAL_CITADEL
+# Spiral Pool Backup Utility - V2.7.1-SPIRAL_CITADEL
 # Creates encrypted, compressed backups of wallet, database, and config
 #
 
@@ -32472,7 +32472,7 @@ log_success() { echo -e "${GREEN}[$(date '+%H:%M:%S')] ✓${NC} $1"; }
 show_help() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}${WHITE}       SPIRAL POOL BACKUP UTILITY - V2.7.0-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}${WHITE}       SPIRAL POOL BACKUP UTILITY - V2.7.1-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Usage: spiralpool-backup [OPTIONS]"
@@ -32851,7 +32851,7 @@ create_manifest() {
 
     cat > "${TEMP_DIR}/manifest.json" << MANIFEST
 {
-    "version": "2.7.0",
+    "version": "2.7.1",
     "created": "$(date -Iseconds)",
     "hostname": "$(hostname)",
     "components": {
@@ -33132,7 +33132,7 @@ mkdir -p "$TEMP_DIR"
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}${WHITE}              SPIRAL POOL BACKUP - V2.7.0-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}${WHITE}              SPIRAL POOL BACKUP - V2.7.1-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -33185,11 +33185,11 @@ echo "  To restore: spiralpool-restore ${OUTPUT_FILE}"
 echo ""
 BACKUPEOF
 
-    # V2.7.0-SPIRAL_CITADEL: Create restore command
+    # V2.7.1-SPIRAL_CITADEL: Create restore command
     sudo tee /usr/local/bin/spiralpool-restore > /dev/null << 'RESTOREEOF'
 #!/bin/bash
 #
-# Spiral Pool Restore Utility - V2.7.0-SPIRAL_CITADEL
+# Spiral Pool Restore Utility - V2.7.1-SPIRAL_CITADEL
 # Restores backups created by spiralpool-backup
 #
 
@@ -33236,7 +33236,7 @@ log_success() { echo -e "${GREEN}[$(date '+%H:%M:%S')] ✓${NC} $1"; }
 show_help() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}${WHITE}         SPIRAL POOL RESTORE UTILITY - V2.7.0-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}${WHITE}         SPIRAL POOL RESTORE UTILITY - V2.7.1-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Usage: spiralpool-restore BACKUP_FILE [OPTIONS]"
@@ -33579,7 +33579,7 @@ fi
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}${WHITE}           SPIRAL POOL RESTORE - V2.7.0-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}${WHITE}           SPIRAL POOL RESTORE - V2.7.1-SPIRAL_CITADEL${NC}${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -39941,7 +39941,7 @@ print_completion() {
     echo -e "${CYAN}            ░░░░░${NC}"
     echo ""
     echo -e "                                     ${GREEN}✓ Installation Completed${NC}"
-    echo -e "                                     ${DIM}V2.7.0 - SPIRAL CITADEL${NC}"
+    echo -e "                                     ${DIM}V2.7.1 - SPIRAL CITADEL${NC}"
     echo ""
 }
 

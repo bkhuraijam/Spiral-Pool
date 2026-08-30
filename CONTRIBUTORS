@@ -56,7 +56,42 @@ MESKONE0722 — https://github.com/MESKONE0722/Spiral-Pool
 
 ---
 
+## Field Reports
+
+Contributors who did not submit code, but whose diagnostic work located a
+defect precisely enough to fix it.
+
+Pencreus — https://github.com/Pencreus
+  - v2.7.1 (issue #19): connectedMiners and poolEffort both reporting 0 for a coin served
+    only through the Multi coin smart port, while that coin was the active
+    rotation slot and genuinely accepting shares. The report carried per-coin
+    API payloads from either side of a TIME-mode rotation switch, an
+    accepted-shares delta across two calls proving submission was live, and a
+    ruled-out list that eliminated frontend, caching and stale-session causes
+    before triage started. It also isolated the one structural difference
+    between an affected and an unaffected coin, which is what made the real
+    variable findable. (See v2.7.1 provenance note below for where that
+    hypothesis landed.)
+  - Same user-visible symptom as issue #6 (kamakhu, v2.5.x), which was fixed by
+    introducing MultiPortSessionProvider. That mechanism was correct; v2.7.1
+    fixes a path where it was never attached. Two defects, one symptom.
+
+---
+
 ## Provenance Notes by Release
+
+v2.7.1 (Spiral Citadel) — reporting and celebration release
+  - All code in this release is original to this repository. No upstream work
+    was ported.
+  - The per-coin statistics defects were located from a field report by
+    Pencreus, credited above. The reported correlation (only coins that had
+    never taken a dedicated-port connection were affected) turned out to be
+    confounded rather than causal, but the evidence supplied was what allowed
+    the real predictor, daemon readiness at smart-port startup, to be
+    identified and separated from it.
+  - The report was reviewed for personal information before being acted on.
+    The API payloads it included carry pool-level statistics only: no wallet
+    addresses, worker names or network addresses were present.
 
 v2.7.0 (Spiral Citadel) — Bitcoin chain-identity release
   - The BIP-110 / RDTS chain-split remediation that this release is named for
