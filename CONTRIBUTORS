@@ -83,6 +83,17 @@ Pencreus — https://github.com/Pencreus
 v2.7.1 (Spiral Citadel) — reporting and celebration release
   - All code in this release is original to this repository. No upstream work
     was ported.
+  - The Avalon LED celebration defects and the Sentinel auto-restart cooldown
+    fix were found in-house, not from a field report. The LED work began with
+    the operator's own observation of an Avalon showing plain white through a
+    live block celebration; the six defects behind it, and the seventh in the
+    dashboard's manual test endpoint, were found by auditing that path. The
+    auto-restart cooldown defect — a restart timestamp recorded only on success,
+    so an un-restartable miner was retried every monitor cycle — was found in
+    the same audit and is unrelated to any reported symptom.
+  - The test-endpoint and auto-restart fixes were applied in place on this tag
+    after the release commit, and are recorded in the changelog under this
+    version rather than a new one, per the project's patch-in-place policy.
   - The per-coin statistics defects were located from a field report by
     Pencreus, credited above. The reported correlation (only coins that had
     never taken a dedicated-port connection were affected) turned out to be
