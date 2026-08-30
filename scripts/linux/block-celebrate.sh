@@ -24,6 +24,9 @@ NC_TIMEOUT=2
 MINER_CACHE_FILE="/run/spiralpool/cgminers.cache"
 MINER_CACHE_TTL=3600  # 1 hour cache for miner discovery
 LOCK_FILE="/run/spiralpool/celebrate.lock"
+DEADLINE_FILE="/run/spiralpool/celebrate.deadline"
+MINER_DB_FILE="/spiralpool/data/miners.json"
+CELEBRATE_LOG="/spiralpool/logs/celebrate.log"
 
 # Track child PIDs for cleanup on termination
 declare -a CHILD_PIDS=()
@@ -40,12 +43,17 @@ cleanup() {
     # Restore saved LED states
     for ip in "${!SAVED_STATES[@]}"; do
         local state="${SAVED_STATES[$ip]}"
+        [[ -z "$state" ]] && continue
         IFS='-' read -r mode brightness speed r g b <<< "$state"
         set_led "$ip" "$mode" "$brightness" "$speed" "$r" "$g" "$b" 2>/dev/null || true
         log "Restored LED on $ip"
     done
-    # Release lock
-    rm -f "$LOCK_FILE"
+    # Release lock — only if it is ours. main() exits early on several paths
+    # (quiet hours, --list, --help, no miners); those must not evict a
+    # celebration that another process is legitimately running.
+    if [[ "$(cat "$LOCK_FILE" 2>/dev/null)" == "$$" ]]; then
+        rm -f "$LOCK_FILE" "$DEADLINE_FILE"
+    fi
     log "Cleanup complete"
 }
 trap cleanup EXIT
@@ -151,10 +159,13 @@ get_led_state() {
     stats=$(cgminer_cmd "$ip" "stats" 2>/dev/null) || return 1
 
     # Extract LEDUser[mode-brightness-speed-r-g-b]
+    # If the miner does not report LEDUser we do NOT invent a value: the previous
+    # fallback ("0-...") restored mode 0, which is OFF, so every celebration ended
+    # by darkening an LED whose original state we never knew.
     if [[ "$stats" =~ LEDUser\[([0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+)\] ]]; then
         echo "${BASH_REMATCH[1]}"
     else
-        echo "0-100-50-0-253-255"  # Default cyan
+        echo ""
     fi
 }
 
@@ -177,7 +188,19 @@ set_led() {
     local g="$6"
     local b="$7"
 
-    cgminer_cmd "$ip" "ascset|0,ledset,$mode-$brightness-$speed-$r-$g-$b" >/dev/null 2>&1
+    local reply
+    reply=$(cgminer_cmd "$ip" "ascset|0,ledset,$mode-$brightness-$speed-$r-$g-$b" 2>/dev/null)
+
+    # A successful ascset replies STATUS=I ("led set ok"). Anything else means the
+    # miner rejected the command. Warn once per miner per run rather than on every
+    # call — a celebration issues thousands of these.
+    # Always returns 0: the script runs under `set -e`, and a transient nc timeout
+    # must not abort a multi-hour celebration.
+    if [[ "$reply" != *"STATUS=I"* ]] && [[ -z "${LED_WARNED:-}" ]]; then
+        LED_WARNED=1
+        log_error "$ip rejected ledset (reply: ${reply:-no response}) — LED effects will not display"
+    fi
+    return 0
 }
 
 # Set LED mode (0=off, 1=solid, 2=flash, 3=pulse, 4=loop)
@@ -225,9 +248,36 @@ discover_miners() {
     wait
 }
 
+# Read this host's own miners from the shared miner database.
+# Preferred over the /24 scan: when two independent pools share a LAN, a blind
+# subnet scan makes every host drive every other host's miners.
+load_configured_miners() {
+    [[ -f "$MINER_DB_FILE" ]] || return 1
+
+    python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        db = json.load(f)
+except Exception:
+    sys.exit(1)
+for ip in db.get("miners", {}):
+    print(ip)
+' "$MINER_DB_FILE" 2>/dev/null
+}
+
 # Get cached miners or discover new ones
 get_miners() {
     local force_scan="${1:-false}"
+
+    # This host's configured miners take precedence over a subnet scan
+    local configured
+    configured=$(load_configured_miners) || configured=""
+    if [[ -n "$configured" ]]; then
+        echo "$configured"
+        return 0
+    fi
+    log "No miners in $MINER_DB_FILE — falling back to subnet scan"
 
     # Check cache
     if [[ "$force_scan" != "true" ]] && [[ -f "$MINER_CACHE_FILE" ]]; then
@@ -340,6 +390,20 @@ fast_pulse() {
     sleep "$duration"
 }
 
+# Read the shared celebration deadline, falling back to this run's own end time.
+# A second block landing mid-celebration extends the deadline instead of killing
+# and restarting the run, which is what used to leave LEDs on a stale colour.
+read_deadline() {
+    local fallback="$1"
+    local d
+    d=$(cat "$DEADLINE_FILE" 2>/dev/null || echo "")
+    if [[ "$d" =~ ^[0-9]+$ ]]; then
+        echo "$d"
+    else
+        echo "$fallback"
+    fi
+}
+
 # Epic celebration sequence for a single miner
 celebrate_miner() {
     local ip="$1"
@@ -351,7 +415,7 @@ celebrate_miner() {
     local end_time=$(( $(date +%s) + duration ))
     local phase=0
 
-    while (( $(date +%s) < end_time )); do
+    while (( $(date +%s) < $(read_deadline "$end_time") )); do
         # Stop early if quiet hours have started (check every cycle)
         if is_quiet_hours 2>/dev/null; then
             log "Quiet hours started — stopping celebration on $ip"
@@ -484,7 +548,12 @@ celebrate_miner() {
         phase=$((phase + 1))
     done
 
-    # Restore original state
+    # Restore original state (skipped when the miner never reported one — see
+    # get_led_state; guessing here is what turned LEDs off)
+    if [[ -z "$original_state" ]]; then
+        log "No saved LED state for $ip — leaving LED as-is"
+        return 0
+    fi
     log "Restoring original LED state on $ip..."
     IFS='-' read -r mode brightness speed r g b <<< "$original_state"
     set_led "$ip" "$mode" "$brightness" "$speed" "$r" "$g" "$b"
@@ -586,12 +655,21 @@ EOF
 }
 
 main() {
+    # All logging goes to stderr, and every automated caller (Sentinel's Popen,
+    # the stratum's exec.Command) sends that to the null device — so nothing this
+    # script did was ever recorded. When not attached to a terminal, append to a
+    # log file instead.
+    if [[ ! -t 2 ]] && [[ -w "$(dirname "$CELEBRATE_LOG")" ]]; then
+        exec 2>>"$CELEBRATE_LOG"
+    fi
+
     mkdir -p /run/spiralpool 2>/dev/null || true
     # Fallback: if /run/spiralpool couldn't be created (ProtectSystem=strict without
     # RuntimeDirectory), use /tmp for lock and cache files
     if [[ ! -d /run/spiralpool ]]; then
         MINER_CACHE_FILE="/tmp/spiralpool-cgminers.cache"
         LOCK_FILE="/tmp/spiralpool-celebrate.lock"
+        DEADLINE_FILE="/tmp/spiralpool-celebrate.deadline"
     fi
 
     local duration="$CELEBRATION_DURATION"
@@ -689,26 +767,42 @@ main() {
         log "Running TEST celebration (30 seconds)..."
     fi
 
-    # Prevent overlapping celebrations — kill previous if still running
+    # Overlapping celebrations: extend the running one instead of killing it.
+    # This script is launched independently by the stratum, by Sentinel, and by
+    # hand, so a single block reaches it several times. Killing and restarting
+    # meant the new run re-read the LED after only a 2s wait and could capture a
+    # mid-celebration colour as the "original" to restore hours later.
     if [[ -f "$LOCK_FILE" ]]; then
         local old_pid
         old_pid=$(cat "$LOCK_FILE" 2>/dev/null)
         if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
-            log "Previous celebration (PID $old_pid) still running — sending SIGTERM"
-            kill "$old_pid" 2>/dev/null || true
-            # Brief wait for cleanup handler to restore LEDs
-            sleep 2
+            local now new_deadline current_deadline
+            now=$(date +%s)
+            new_deadline=$(( now + duration ))
+            current_deadline=$(read_deadline 0)
+            if (( new_deadline > current_deadline )); then
+                echo "$new_deadline" > "$DEADLINE_FILE"
+                log "Celebration already running (PID $old_pid) — extended by $(( duration / 60 ))m"
+            else
+                log "Celebration already running (PID $old_pid) — deadline unchanged"
+            fi
+            # Do not run cleanup: the incumbent owns the LEDs and the lock
+            trap - EXIT
+            exit 0
         fi
-        rm -f "$LOCK_FILE"
+        # Stale lock from a process that died without cleanup
+        log "Removing stale lock (PID ${old_pid:-unknown} not running)"
+        rm -f "$LOCK_FILE" "$DEADLINE_FILE"
     fi
 
-    # Write our PID as the lock
+    # Write our PID as the lock and publish our deadline
     echo $$ > "$LOCK_FILE"
+    echo "$(( $(date +%s) + duration ))" > "$DEADLINE_FILE"
 
     run_celebration "$duration" "${miners[@]}"
 
     # Release lock on normal exit
-    rm -f "$LOCK_FILE"
+    rm -f "$LOCK_FILE" "$DEADLINE_FILE"
 }
 
 # Run if executed directly

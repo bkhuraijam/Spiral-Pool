@@ -20071,11 +20071,13 @@ def broadcast_block_found(block_data):
     except Exception:
         pass
 
-    # Trigger LED celebration on all Avalon miners (skip during quiet hours)
+    # LED celebration is owned by block-celebrate.sh, which the stratum and
+    # Sentinel both launch on a block find. This used to also run the dashboard's
+    # own on/off loop against the same LEDs; the two speak different CGMiner
+    # commands (ledset RGB vs led 1/0) and the on/off calls overwrote the RGB
+    # sequence, leaving Avalons showing plain white for the whole celebration.
     if quiet:
-        print("[BLOCK] LED + browser celebration suppressed — quiet hours active")
-    else:
-        trigger_avalon_block_celebration()
+        print("[BLOCK] Browser celebration suppressed — quiet hours active")
 
 
 _celebration_cancel = threading.Event()   # Cancel signal for active LED celebrations
@@ -20151,8 +20153,11 @@ def trigger_avalon_block_celebration():
     - ascset|0,led,1 - Turn on LED
     - ascset|0,led,0 - Turn off LED
 
-    NOTE: Avalon LEDs are single-color (no RGB support), but we create
-    exciting patterns with varied timing to make it unmistakable!
+    NOTE: this on/off path is now only reached from the manual test endpoint.
+    The claim that Avalon LEDs are single-color is NOT true of all devices —
+    an Avalon Nano 3s on cgminer 4.11.1 accepts `ascset|0,ledset,<mode>-
+    <brightness>-<speed>-<r>-<g>-<b>` and replies "led set ok". Automatic block
+    celebrations go through block-celebrate.sh, which uses that RGB command.
 
     Celebration runs for 1 HOUR with 10 rotating eye-catching patterns!
     Anyone walking by will know you found a block.
