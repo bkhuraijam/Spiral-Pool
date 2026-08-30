@@ -11461,36 +11461,71 @@ def test_device():
     })
 
 
+def _block_celebration_script():
+    """Path to block-celebrate.sh, or None if it is not present on this host.
+
+    The script is Linux-only; on Windows there is nothing to run.
+    """
+    import platform
+    if platform.system() != "Linux":
+        return None
+    install_dir = os.environ.get("SPIRALPOOL_INSTALL_DIR", "/spiralpool")
+    candidates = [
+        Path(install_dir) / "scripts" / "block-celebrate.sh",
+        Path(__file__).resolve().parent.parent.parent / "scripts" / "linux" / "block-celebrate.sh",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
 @app.route('/api/test/block-celebration', methods=['POST'])
 @admin_required
 def test_block_celebration():
     """Test the Avalon LED block celebration.
 
-    This endpoint manually triggers the 1-hour LED celebration pattern
-    on all configured Avalon miners. Use this to test the celebration
-    without actually finding a block.
+    Runs the same code an actual block find runs: block-celebrate.sh, which
+    drives the RGB `ascset|0,ledset,<mode>-<brightness>-<speed>-<r>-<g>-<b>`
+    command. This endpoint used to run the dashboard's own `led 1/0` loop
+    instead, so a "test" showed plain white and told you nothing about what a
+    real celebration would look like.
 
     POST /api/test/block-celebration
     Optional body: {"duration": 60}  # Override duration in seconds (default: 3600 = 1 hour)
+                   {"force": true}   # Bypass quiet hours
 
     Returns: {"success": true, "message": "...", "avalon_count": N}
     """
     data = request.json or {}
     duration_override = data.get("duration")  # Optional: override duration in seconds
-    force = data.get("force", False)          # Optional: bypass quiet hours check
+    force = bool(data.get("force", False))    # Optional: bypass quiet hours check
 
-    # Get Avalon miner count
+    script = _block_celebration_script()
+    if not script:
+        return jsonify({
+            "success": False,
+            "error": "Celebration script unavailable",
+            "message": "block-celebrate.sh was not found (it is Linux-only). LED celebrations are unavailable on this host."
+        })
+
+    # Target exactly the Avalons this dashboard has configured. The script can
+    # discover miners itself, but a test should hit the devices the user is
+    # looking at.
     config = load_config()
     avalon_devices = config.get("devices", {}).get("avalon", [])
+    miner_ips = [d.get("ip") for d in avalon_devices if d.get("ip")]
 
-    if not avalon_devices:
+    if not miner_ips:
         return jsonify({
             "success": False,
             "error": "No Avalon miners configured",
             "message": "Add Avalon miners in Settings > Devices first"
         })
 
-    # Check quiet hours (unless force override)
+    # Check quiet hours (unless force override). The script checks its own clock-based
+    # quiet hours too; --force covers that. This check adds the Avalon efficiency
+    # schedule, which the script does not know about.
     if not force and _is_celebration_quiet_hours():
         return jsonify({
             "success": False,
@@ -11498,146 +11533,42 @@ def test_block_celebration():
             "message": "LED celebration suppressed — efficiency schedule is active. Use {\"force\": true} to override."
         })
 
-    # Trigger the celebration (optionally with custom duration for testing)
-    if duration_override and isinstance(duration_override, int) and 1 <= duration_override <= 3600:
-        # For testing, allow shorter duration
-        trigger_avalon_block_celebration_with_duration(duration_override)
-        return jsonify({
-            "success": True,
-            "message": f"LED celebration triggered for {duration_override} seconds on {len(avalon_devices)} Avalon miner(s)!",
-            "avalon_count": len(avalon_devices),
-            "duration": duration_override
-        })
+    if isinstance(duration_override, int) and not isinstance(duration_override, bool) and 1 <= duration_override <= 3600:
+        duration = duration_override
     else:
-        # Full 1-hour celebration
-        trigger_avalon_block_celebration()
+        duration = 3600
+
+    # --miners takes one space-separated argument (the script splits it with `read -ra`)
+    cmd = [script, "--duration", str(duration), "--miners", " ".join(miner_ips)]
+    if force:
+        cmd.append("--force")
+
+    import subprocess
+    try:
+        # Detached, like Sentinel's launcher: the script runs for the full
+        # duration and owns its own cleanup. It logs to /spiralpool/logs/celebrate.log.
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+    except Exception as e:
         return jsonify({
-            "success": True,
-            "message": f"LED celebration triggered for 1 HOUR on {len(avalon_devices)} Avalon miner(s)! 🎉",
-            "avalon_count": len(avalon_devices),
-            "duration": 3600
+            "success": False,
+            "error": "Failed to launch celebration",
+            "message": f"Could not run {script}: {e}"
         })
 
-
-def trigger_avalon_block_celebration_with_duration(duration_seconds):
-    """Trigger LED celebration with custom duration (for testing).
-
-    Same as trigger_avalon_block_celebration() but with configurable duration.
-    Respects _celebration_cancel event to prevent thread explosion.
-    """
-    global _celebration_active
-    import random
-
-    # Cancel any active celebration before starting
-    _celebration_cancel.set()
-    time.sleep(0.2)
-    _celebration_cancel.clear()
-    _celebration_active = True
-
-    def led_on(ip, port):
-        cgminer_command(ip, port, "ascset", "0,led,1", timeout=2)
-
-    def led_off(ip, port):
-        cgminer_command(ip, port, "ascset", "0,led,0", timeout=2)
-
-    def celebration_sequence(ip, port, duration):
-        try:
-            start_time = time.time()
-            end_time = start_time + duration
-            pattern_num = 0
-
-            while time.time() < end_time and not _celebration_cancel.is_set():
-                pattern_num = (pattern_num + 1) % 10
-
-                if pattern_num == 0:
-                    # RAVE MODE
-                    for _ in range(20):
-                        led_on(ip, port)
-                        time.sleep(0.05)
-                        led_off(ip, port)
-                        time.sleep(0.05)
-                elif pattern_num == 1:
-                    # Heartbeat
-                    for _ in range(4):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.6)
-                elif pattern_num == 2:
-                    # Slow pulse
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(1.5)
-                        led_off(ip, port)
-                        time.sleep(0.5)
-                elif pattern_num == 3:
-                    # Morse "BLOCK"
-                    morse_block = [
-                        [0.4, 0.1, 0.1, 0.1],
-                        [0.1, 0.4, 0.1, 0.1],
-                        [0.4, 0.4, 0.4],
-                        [0.4, 0.1, 0.4, 0.1],
-                        [0.4, 0.1, 0.4],
-                    ]
-                    for letter in morse_block:
-                        for dur in letter:
-                            led_on(ip, port)
-                            time.sleep(dur)
-                            led_off(ip, port)
-                            time.sleep(0.1)
-                        time.sleep(0.3)
-                elif pattern_num == 4:
-                    # Accelerating
-                    delays = [0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.08, 0.05]
-                    for delay in delays + list(reversed(delays)):
-                        led_on(ip, port)
-                        time.sleep(delay)
-                        led_off(ip, port)
-                        time.sleep(delay)
-                elif pattern_num == 5:
-                    # Party mode
-                    for _ in range(15):
-                        led_on(ip, port)
-                        time.sleep(random.uniform(0.05, 0.3))
-                        led_off(ip, port)
-                        time.sleep(random.uniform(0.05, 0.2))
-                else:
-                    # Quick strobe
-                    for _ in range(10):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-
-                time.sleep(0.5)
-
-            led_off(ip, port)
-        except Exception:
-            pass
-        finally:
-            global _celebration_active
-            _celebration_active = False
-
-    try:
-        config = load_config()
-        avalon_devices = config.get("devices", {}).get("avalon", [])
-
-        for device in avalon_devices:
-            ip = device.get("ip")
-            port = device.get("port", 4028)
-            if ip:
-                thread = threading.Thread(
-                    target=celebration_sequence,
-                    args=(ip, port, duration_seconds),
-                    daemon=True
-                )
-                thread.start()
-    except Exception:
-        pass
+    return jsonify({
+        "success": True,
+        "message": (
+            f"RGB LED celebration launched for {duration}s on {len(miner_ips)} Avalon miner(s). "
+            "If a celebration is already running, its deadline is extended instead."
+        ),
+        "avalon_count": len(miner_ips),
+        "duration": duration
+    })
 
 
 @app.route('/settings')
@@ -20076,12 +20007,12 @@ def broadcast_block_found(block_data):
     # own on/off loop against the same LEDs; the two speak different CGMiner
     # commands (ledset RGB vs led 1/0) and the on/off calls overwrote the RGB
     # sequence, leaving Avalons showing plain white for the whole celebration.
+    # The on/off path was written on the premise that Avalon LEDs are single-colour;
+    # an Avalon Nano 3s on cgminer 4.11.1 answers "led set ok" to ledset, so the
+    # premise is wrong at least for that device. Nothing in the dashboard drives
+    # LEDs now — the manual test endpoint launches the same script.
     if quiet:
         print("[BLOCK] Browser celebration suppressed — quiet hours active")
-
-
-_celebration_cancel = threading.Event()   # Cancel signal for active LED celebrations
-_celebration_active = False                # Guard against thread explosion
 
 
 def _is_celebration_quiet_hours():
@@ -20145,221 +20076,6 @@ def _is_celebration_quiet_hours():
     return False
 
 
-def trigger_avalon_block_celebration():
-    """Flash LEDs on all Avalon miners to celebrate a block find.
-
-    Uses CGMiner ascset command to trigger LED pattern.
-    Avalon devices support LED control via:
-    - ascset|0,led,1 - Turn on LED
-    - ascset|0,led,0 - Turn off LED
-
-    NOTE: this on/off path is now only reached from the manual test endpoint.
-    The claim that Avalon LEDs are single-color is NOT true of all devices —
-    an Avalon Nano 3s on cgminer 4.11.1 accepts `ascset|0,ledset,<mode>-
-    <brightness>-<speed>-<r>-<g>-<b>` and replies "led set ok". Automatic block
-    celebrations go through block-celebrate.sh, which uses that RGB command.
-
-    Celebration runs for 1 HOUR with 10 rotating eye-catching patterns!
-    Anyone walking by will know you found a block.
-
-    This triggers for ANY miner finding a block - the Avalon celebrates
-    for the whole fleet!
-
-    Thread-safe: cancels any active celebration before starting a new one
-    to prevent unbounded thread growth from rapid block finds.
-    """
-    global _celebration_active
-    import random
-
-    # Cancel any active celebration before starting a new one
-    _celebration_cancel.set()
-    time.sleep(0.2)  # Brief pause for threads to notice cancellation
-    _celebration_cancel.clear()
-    _celebration_active = True
-
-    # Duration: 1 hour = 3600 seconds
-    CELEBRATION_DURATION = 3600
-
-    def led_on(ip, port):
-        cgminer_command(ip, port, "ascset", "0,led,1", timeout=2)
-
-    def led_off(ip, port):
-        cgminer_command(ip, port, "ascset", "0,led,0", timeout=2)
-
-    def celebration_sequence(ip, port=4028):
-        """Run LED celebration sequence for a single Avalon miner."""
-        try:
-            start_time = time.time()
-            end_time = start_time + CELEBRATION_DURATION
-            pattern_num = 0
-
-            # Celebrate for 1 hour with 10 rotating patterns!
-            # Check cancel event to allow early termination on new block
-            while time.time() < end_time and not _celebration_cancel.is_set():
-                pattern_num = (pattern_num + 1) % 10
-
-                if pattern_num == 0:
-                    # Pattern 1: RAVE MODE - Super fast strobe (20 flashes)
-                    for _ in range(20):
-                        led_on(ip, port)
-                        time.sleep(0.05)
-                        led_off(ip, port)
-                        time.sleep(0.05)
-
-                elif pattern_num == 1:
-                    # Pattern 2: Heartbeat - thump-thump... thump-thump...
-                    for _ in range(4):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.6)
-
-                elif pattern_num == 2:
-                    # Pattern 3: Slow majestic pulse (winner's glow)
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(1.5)
-                        led_off(ip, port)
-                        time.sleep(0.5)
-
-                elif pattern_num == 3:
-                    # Pattern 4: Morse code "BLOCK" (B=-... L=.-.. O=--- C=-.-. K=-.-)
-                    morse_block = [
-                        [0.4, 0.1, 0.1, 0.1],  # B: -...
-                        [0.1, 0.4, 0.1, 0.1],  # L: .-..
-                        [0.4, 0.4, 0.4],       # O: ---
-                        [0.4, 0.1, 0.4, 0.1],  # C: -.-.
-                        [0.4, 0.1, 0.4],       # K: -.-
-                    ]
-                    for letter in morse_block:
-                        for duration in letter:
-                            led_on(ip, port)
-                            time.sleep(duration)
-                            led_off(ip, port)
-                            time.sleep(0.1)
-                        time.sleep(0.3)  # Letter gap
-
-                elif pattern_num == 4:
-                    # Pattern 5: Accelerating pulse (builds excitement)
-                    delays = [0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.08, 0.05, 0.05, 0.05]
-                    for delay in delays:
-                        led_on(ip, port)
-                        time.sleep(delay)
-                        led_off(ip, port)
-                        time.sleep(delay)
-                    # Then slow down
-                    for delay in reversed(delays):
-                        led_on(ip, port)
-                        time.sleep(delay)
-                        led_off(ip, port)
-                        time.sleep(delay)
-
-                elif pattern_num == 5:
-                    # Pattern 6: Party mode - random timing!
-                    for _ in range(15):
-                        led_on(ip, port)
-                        time.sleep(random.uniform(0.05, 0.3))
-                        led_off(ip, port)
-                        time.sleep(random.uniform(0.05, 0.2))
-
-                elif pattern_num == 6:
-                    # Pattern 7: SOS (... --- ...) - attention signal
-                    # S = ...
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-                    time.sleep(0.3)
-                    # O = ---
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(0.4)
-                        led_off(ip, port)
-                        time.sleep(0.15)
-                    time.sleep(0.3)
-                    # S = ...
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-
-                elif pattern_num == 7:
-                    # Pattern 8: Double flash burst
-                    for _ in range(5):
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.1)
-                        led_on(ip, port)
-                        time.sleep(0.1)
-                        led_off(ip, port)
-                        time.sleep(0.5)
-
-                elif pattern_num == 8:
-                    # Pattern 9: Long ON with quick interrupts (lightning)
-                    for _ in range(3):
-                        led_on(ip, port)
-                        time.sleep(1.0)
-                        led_off(ip, port)
-                        time.sleep(0.05)
-                        led_on(ip, port)
-                        time.sleep(0.05)
-                        led_off(ip, port)
-                        time.sleep(0.05)
-                        led_on(ip, port)
-                        time.sleep(0.05)
-                        led_off(ip, port)
-                        time.sleep(0.3)
-
-                else:
-                    # Pattern 10: Wave effect (speed oscillation)
-                    for speed in [0.3, 0.25, 0.2, 0.15, 0.1, 0.15, 0.2, 0.25, 0.3]:
-                        led_on(ip, port)
-                        time.sleep(speed)
-                        led_off(ip, port)
-                        time.sleep(speed * 0.5)
-
-                # Brief pause between patterns
-                time.sleep(1.0)
-
-            # Celebration over (or cancelled) - turn LED off
-            led_off(ip, port)
-
-        except Exception as e:
-            # Silently fail - LED celebration is nice-to-have, not critical
-            pass
-        finally:
-            global _celebration_active
-            _celebration_active = False
-
-    # Get all Avalon miners from config
-    try:
-        config = load_config()
-        avalon_devices = config.get("devices", {}).get("avalon", [])
-
-        # Run celebration on each Avalon in a separate thread (non-blocking)
-        # Previous celebration was already cancelled above, so at most
-        # len(avalon_devices) threads run at once (typically 1-10 miners)
-        for device in avalon_devices:
-            ip = device.get("ip")
-            port = device.get("port", 4028)
-            if ip:
-                thread = threading.Thread(
-                    target=celebration_sequence,
-                    args=(ip, port),
-                    daemon=True
-                )
-                thread.start()
-
-    except Exception as e:
-        # Config load failed - silently continue
-        pass
 
 
 def broadcast_alert(alert_data):

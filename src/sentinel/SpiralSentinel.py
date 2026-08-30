@@ -17095,7 +17095,7 @@ class AchievementTracker:
 
 # === MONITOR STATE ===
 class MonitorState:
-    _PERSIST_KEYS = ["last_report_hour","last_weekly_report","last_monthly_report","last_quarterly_report","last_special_date","last_maintenance_reminder","last_alerts","miner_offline_since","miner_restart_times","zombie_kick_times","temp_alert_sent","miner_offline_alert_sent","miner_last_uptime","network_history","block_history","miner_health_history","miner_temp_history","miner_hashrate_history","earnings","weekly_stats","quarterly_stats","lifetime_stats","miner_uptimes","miner_block_counts","miner_stale_history","miner_hashrate_baseline","baseline_poison_migrated","recent_blips","pool_share_history","network_crash_first_detected","network_crash_alert_sent","network_baseline_phs","pool_drop_first_detected","pool_drop_alert_sent","expected_fleet_ths","pool_blocks_found","personal_bests","last_daily_report","hashrate_history_24h","coin_changes","mode_changes","pending_alerts","chronic_issues","miner_pool_hashrate","global_alert_batch","last_batch_flush","miner_stable_online_since","known_block_statuses","orphan_alerts_sent","seen_pool_block_hashes","sats_history","sats_surge_last_alert","high_odds_last_alert","high_odds_first_detected","thermal_critical_since","thermal_shutdown_sent","fan_alert_sent","last_known_orphan_count","zmq_stale_alerted","worker_count_baseline","share_loss_alerted","last_block_notify_mode","last_replica_count","circuit_breaker_alerted","backpressure_alerted","last_wal_write_errors","last_wal_commit_errors","zmq_disconnected_alerted","known_miner_pool_urls","url_mismatch_alerted","hashboard_alert_sent","miner_hw_errors","hw_error_alert_sent","best_share_difficulty","price_history","price_crash_last_alert","last_wallet_balance","wallet_balance_last_check","missing_payout_alerted","payout_deferred_from_quiet","previous_month_earnings","revenue_decline_alerted","coin_wallet_balances","coin_wallet_last_check","coin_missing_payout_alerted","coin_payout_deferred","coin_wallet_drop_zeros","coin_blocks_at_last_balance"]
+    _PERSIST_KEYS = ["last_report_hour","last_weekly_report","last_monthly_report","last_quarterly_report","last_special_date","last_maintenance_reminder","last_alerts","miner_offline_since","miner_restart_times","miner_restart_attempts","zombie_kick_times","temp_alert_sent","miner_offline_alert_sent","miner_last_uptime","network_history","block_history","miner_health_history","miner_temp_history","miner_hashrate_history","earnings","weekly_stats","quarterly_stats","lifetime_stats","miner_uptimes","miner_block_counts","miner_stale_history","miner_hashrate_baseline","baseline_poison_migrated","recent_blips","pool_share_history","network_crash_first_detected","network_crash_alert_sent","network_baseline_phs","pool_drop_first_detected","pool_drop_alert_sent","expected_fleet_ths","pool_blocks_found","personal_bests","last_daily_report","hashrate_history_24h","coin_changes","mode_changes","pending_alerts","chronic_issues","miner_pool_hashrate","global_alert_batch","last_batch_flush","miner_stable_online_since","known_block_statuses","orphan_alerts_sent","seen_pool_block_hashes","sats_history","sats_surge_last_alert","high_odds_last_alert","high_odds_first_detected","thermal_critical_since","thermal_shutdown_sent","fan_alert_sent","last_known_orphan_count","zmq_stale_alerted","worker_count_baseline","share_loss_alerted","last_block_notify_mode","last_replica_count","circuit_breaker_alerted","backpressure_alerted","last_wal_write_errors","last_wal_commit_errors","zmq_disconnected_alerted","known_miner_pool_urls","url_mismatch_alerted","hashboard_alert_sent","miner_hw_errors","hw_error_alert_sent","best_share_difficulty","price_history","price_crash_last_alert","last_wallet_balance","wallet_balance_last_check","missing_payout_alerted","payout_deferred_from_quiet","previous_month_earnings","revenue_decline_alerted","coin_wallet_balances","coin_wallet_last_check","coin_missing_payout_alerted","coin_payout_deferred","coin_wallet_drop_zeros","coin_blocks_at_last_balance"]
 
     def __init__(self):
         self.data_dir = DATA_DIR
@@ -17117,6 +17117,9 @@ class MonitorState:
         self.last_alerts = {}
         self.miner_offline_since = {}
         self.miner_restart_times = {}
+        # name → timestamp of the last restart ATTEMPT, successful or not. Kept
+        # apart from miner_restart_times, which counts restarts that happened.
+        self.miner_restart_attempts = {}
         self.zombie_kick_times = {}   # name → timestamp of last stratum kick attempt
         self.temp_alert_sent = {}
         self.miner_offline_alert_sent = {}  # Separate from temp_alert_sent to avoid suppression
@@ -17475,7 +17478,7 @@ class MonitorState:
 
         # Per-miner dicts that accumulate entries
         miner_dicts = [
-            "miner_offline_since", "miner_restart_times", "temp_alert_sent",
+            "miner_offline_since", "miner_restart_times", "miner_restart_attempts", "temp_alert_sent",
             "miner_offline_alert_sent", "miner_last_uptime", "miner_health_history", "miner_temp_history",
             "miner_hashrate_history", "miner_uptimes", "miner_block_counts",
             "miner_stale_history", "miner_hashrate_baseline", "miner_stable_online_since",
@@ -18030,6 +18033,25 @@ class MonitorState:
         elif isinstance(restarts, list) and restarts:
             return max(restarts)  # Most recent from list
         return 0
+
+    def get_last_restart_attempt_time(self, miner_name):
+        """Most recent restart ATTEMPT, successful or not — for cooldown gating.
+
+        Auto-restart used to gate on get_last_restart_time(), which is only
+        written when a restart succeeds. A miner that cannot be restarted
+        remotely (no API support, wrong credentials, firmware that ignores the
+        command) therefore never set a cooldown, and was retried on every
+        monitor cycle for as long as it stayed offline. Gate on this instead;
+        the stats and the excessive-restart alert keep using the success list.
+        """
+        attempt = self.miner_restart_attempts.get(miner_name, 0)
+        if not isinstance(attempt, (int, float)):
+            attempt = 0
+        return max(attempt, self.get_last_restart_time(miner_name))
+
+    def record_restart_attempt(self, miner_name):
+        """Record that a restart was attempted, before knowing whether it worked."""
+        self.miner_restart_attempts[miner_name] = time.time()
 
     def record_miner_restart(self, miner_name):
         """Record a miner restart with proper list tracking."""
@@ -21578,8 +21600,12 @@ def monitor_loop(state):
                             state.track_chronic_issue(name, "miner_offline")
                             state.weekly_stats["offline_events"] += 1
                     # Auto-restart (only if health monitoring enabled)
-                    if HEALTH_MONITORING_ENABLED and AUTO_RESTART and mins >= AUTO_RESTART_MIN and (time.time() - state.get_last_restart_time(name)) > AUTO_RESTART_COOL and not in_startup_grace:
+                    if HEALTH_MONITORING_ENABLED and AUTO_RESTART and mins >= AUTO_RESTART_MIN and (time.time() - state.get_last_restart_attempt_time(name)) > AUTO_RESTART_COOL and not in_startup_grace:
                         logger.warning(f"OFFLINE RESTART: {sanitize_log_input(name)}")
+                        # Record the attempt before making it, so the cooldown holds
+                        # even when the restart fails or raises — otherwise a miner
+                        # that cannot be restarted remotely is retried every cycle.
+                        state.record_restart_attempt(name)
                         ok = False
                         # Try all miner types with universal restart function
                         ALL_MINER_TYPES = ["nerdqaxe", "nmaxe", "axeos", "avalon", "antminer", "antminer_scrypt", "whatsminer", "innosilicon", "futurebit", "hammer", "goldshell", "luckyminer", "jingleminer", "zyber", "esp32miner"]
@@ -21592,9 +21618,9 @@ def monitor_loop(state):
                                 break
                         if ok:
                             send_alert("auto_restart", create_restart_embed(name, mins, ok), state, miner_name=name)
-                            state.record_miner_restart(name)  # Record restart time to enforce cooldown
+                            state.record_miner_restart(name)  # Restart stats + post-restart suppression windows
                         else:
-                            logger.warning(f"Auto-restart failed for {sanitize_log_input(name)} - miner may not support remote restart")
+                            logger.warning(f"Auto-restart failed for {sanitize_log_input(name)} - miner may not support remote restart; next attempt in {AUTO_RESTART_COOL // 60}m")
                 else:
                     # Miner is online - apply hysteresis before clearing offline state
                     if name in state.miner_offline_since:

@@ -696,7 +696,7 @@ main() {
                 shift 2
                 ;;
             --miners)
-                [[ -z "${2:-}" ]] && { log_error "--miners requires an argument (comma-separated IPs)"; exit 1; }
+                [[ -z "${2:-}" ]] && { log_error "--miners requires an argument (space-separated IPs)"; exit 1; }
                 miners_arg="$2"
                 shift 2
                 ;;

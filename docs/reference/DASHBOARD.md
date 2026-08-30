@@ -283,7 +283,7 @@ Progressive Web App manifest (`static/manifest.json`) enables "Add to Home Scree
 ### Avalon Power Scheduling
 
 - Per-device time-based power profiles (efficiency/performance)
-- LED celebration on block find (1 hour, 10 rotating patterns)
+- RGB LED celebration on block find, run by `scripts/block-celebrate.sh` (duration from `config.yaml`, default 2 hours); `POST /api/test/block-celebration` triggers the same script against the configured Avalons
 - Quiet hours suppression
 
 ### Local Pool Detection
