@@ -167,17 +167,28 @@ is_cgminer() {
 get_led_state() {
     local ip="$1"
     local stats
-    stats=$(cgminer_cmd "$ip" "stats" 2>/dev/null) || return 1
 
-    # Extract LEDUser[mode-brightness-speed-r-g-b]
+    # Extract LEDUser[mode-brightness-speed-r-g-b].
     # If the miner does not report LEDUser we do NOT invent a value: the previous
     # fallback ("0-...") restored mode 0, which is OFF, so every celebration ended
     # by darkening an LED whose original state we never knew.
+    stats=$(cgminer_cmd "$ip" "stats" 2>/dev/null) || true
     if [[ "$stats" =~ LEDUser\[([0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+)\] ]]; then
         echo "${BASH_REMATCH[1]}"
-    else
-        echo ""
+        return 0
     fi
+
+    # Avalon MM firmware answers the plain-text "stats" with Code=14 the same way
+    # it does "version", so the field is simply absent rather than unsupported.
+    # Reading it as "this miner has no LED state" is what left a Nano3s pulsing
+    # cyan for six hours after a celebration ended and declined to guess.
+    stats=$(cgminer_cmd "$ip" '{"command":"stats"}' 2>/dev/null) || true
+    if [[ "$stats" =~ LEDUser\[([0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+-[0-9]+)\] ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+
+    echo ""
 }
 
 # Check if miner is responsive (LED control works regardless of LCD state)

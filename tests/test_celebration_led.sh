@@ -93,6 +93,31 @@ cgminer_cmd() { echo ''; }
 if is_cgminer 10.0.0.1; then r=yes; else r=no; fi
 assert "a host that answers nothing is not a miner" "$r" "no"
 
+echo "get_led_state — reading the state a restore would put back"
+
+REAL_STATS='{"STATS":[{"MM ID0":"Ver[Nano3s] LED[0-3] LEDUser[3-100-90-0-255-255] LcdOnoff[1]"}]}'
+
+cgminer_cmd() { [[ "$2" == "stats" ]] && echo 'MM ID0[Ver[x] LEDUser[1-100-50-255-255-255] Lcd[1]]' || echo ''; }
+assert "plain-text stats is read" "$(get_led_state 10.0.0.1)" "1-100-50-255-255-255"
+
+# The field case, and the one that stranded a real miner: the celebration ended,
+# found no saved state, and declined to guess — leaving the LED lit for hours.
+cgminer_cmd() {
+    if [[ "$2" == "stats" ]]; then
+        echo 'STATUS=E,When=1,Code=14,Msg=Invalid command|'
+    elif [[ "$2" == *'"command"'*'stats'* ]]; then
+        echo "$REAL_STATS"
+    else
+        echo ''
+    fi
+}
+assert "Avalon Nano3s: plain rejected, JSON read" "$(get_led_state 10.0.0.1)" "3-100-90-0-255-255"
+
+# A miner that genuinely has no LEDUser field must still report nothing, so the
+# restore path leaves it alone rather than inventing mode 0.
+cgminer_cmd() { echo 'MM ID0[Ver[x] LcdOnoff[1]]'; }
+assert "no LEDUser in either dialect stays empty" "$(get_led_state 10.0.0.1)" ""
+
 echo
 if [[ $FAIL -eq 0 ]]; then
     echo "ALL CELEBRATION LED TESTS PASSED"

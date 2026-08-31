@@ -96,12 +96,15 @@ v2.7.1 (Spiral Citadel) — reporting and celebration release
     start and then latched, masking the real thing — was found by the operator
     reporting that alert on a healthy pool, and traced from there. No external
     reporter.
-  - The celebration LED discovery defect was found from live cgminer API
-    output during that investigation: an Avalon Nano3s answering Code=14 to
-    the plain-text "version" the discovery probe sends, while answering the
-    JSON form and accepting ledset normally. The dark-when-idle behaviour was
-    requested by the operator after a celebration that died with its host left
-    the miners lit. No external reporter.
+  - The celebration LED defects were found from live cgminer API output during
+    that investigation: an Avalon Nano3s answering Code=14 to the plain-text
+    "version" and "stats" the discovery probe and LED reader send, while
+    answering the JSON form and accepting ledset normally. The operator's own
+    celebrate.log supplied the proof, and corrected a wrong first diagnosis:
+    the LED was not stranded by a host dying mid-celebration, as initially
+    concluded, but by a celebration that ended cleanly with no saved state to
+    restore. The dark-when-idle behaviour was requested by the operator.
+    No external reporter.
   - The test-endpoint, auto-restart, ZMQ alerting and celebration LED fixes
     were applied in place on this tag after the release commit, and are
     recorded in the changelog under this version rather than a new one, per the
