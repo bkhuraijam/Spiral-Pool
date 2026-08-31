@@ -40,13 +40,11 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
     done
     wait 2>/dev/null || true
-    # Restore saved LED states
+    # Return LEDs to their idle state. Unlike the old restore-only path this also
+    # covers a miner whose pre-celebration state was never captured: with
+    # led_idle_state=off there is nothing to know, the LED just goes off.
     for ip in "${!SAVED_STATES[@]}"; do
-        local state="${SAVED_STATES[$ip]}"
-        [[ -z "$state" ]] && continue
-        IFS='-' read -r mode brightness speed r g b <<< "$state"
-        set_led "$ip" "$mode" "$brightness" "$speed" "$r" "$g" "$b" 2>/dev/null || true
-        log "Restored LED on $ip"
+        restore_idle_led "$ip" "${SAVED_STATES[$ip]}" 2>/dev/null || true
     done
     # Release lock — only if it is ours. main() exits early on several paths
     # (quiet hours, --list, --help, no miners); those must not evict a
@@ -116,6 +114,11 @@ is_quiet_hours() {
     fi
 }
 
+# Idle LED state — what the LED shows when no celebration is running.
+#   "off"     turn the LED off when the celebration ends (default)
+#   "restore" put back whatever the LED showed before the celebration
+LED_IDLE_STATE="$(_read_sentinel_config_val "led_idle_state" "off")"
+
 #===============================================================================
 # LOGGING
 #===============================================================================
@@ -147,7 +150,15 @@ cgminer_cmd() {
 is_cgminer() {
     local ip="$1"
     local response
-    response=$(cgminer_cmd "$ip" "version" 2>/dev/null) || return 1
+    response=$(cgminer_cmd "$ip" "version" 2>/dev/null) || true
+    if [[ "$response" == *"CGMiner"* ]] || [[ "$response" == *"cgminer"* ]]; then
+        return 0
+    fi
+    # Avalon MM firmware (Nano3s / MM319, cgminer 4.11.1) rejects the plain-text
+    # "version" with Code=14 "Invalid command" but answers the JSON dialect. It
+    # accepts plain-text ascset, so the device is fully drivable — it just could
+    # not be identified, and a subnet scan therefore discovered nothing at all.
+    response=$(cgminer_cmd "$ip" '{"command":"version"}' 2>/dev/null) || true
     [[ "$response" == *"CGMiner"* ]] || [[ "$response" == *"cgminer"* ]]
 }
 
@@ -201,6 +212,31 @@ set_led() {
         log_error "$ip rejected ledset (reply: ${reply:-no response}) — LED effects will not display"
     fi
     return 0
+}
+
+# Return one miner's LED to its idle state at the end of a celebration.
+# With led_idle_state=off (the default) that is mode 0. With "restore" it is the
+# state captured before the celebration began, and a state that was never
+# captured is left untouched rather than guessed — guessing is what used to turn
+# LEDs off by accident.
+restore_idle_led() {
+    local ip="$1" saved="$2"
+
+    if [[ "$LED_IDLE_STATE" != "restore" ]]; then
+        set_led "$ip" 0 0 0 0 0 0
+        log "LED off on $ip"
+        return 0
+    fi
+
+    if [[ -z "$saved" ]]; then
+        log "No saved LED state for $ip — leaving LED as-is"
+        return 0
+    fi
+
+    local mode brightness speed r g b
+    IFS='-' read -r mode brightness speed r g b <<< "$saved"
+    set_led "$ip" "$mode" "$brightness" "$speed" "$r" "$g" "$b"
+    log "Restored LED on $ip"
 }
 
 # Set LED mode (0=off, 1=solid, 2=flash, 3=pulse, 4=loop)
@@ -548,15 +584,7 @@ celebrate_miner() {
         phase=$((phase + 1))
     done
 
-    # Restore original state (skipped when the miner never reported one — see
-    # get_led_state; guessing here is what turned LEDs off)
-    if [[ -z "$original_state" ]]; then
-        log "No saved LED state for $ip — leaving LED as-is"
-        return 0
-    fi
-    log "Restoring original LED state on $ip..."
-    IFS='-' read -r mode brightness speed r g b <<< "$original_state"
-    set_led "$ip" "$mode" "$brightness" "$speed" "$r" "$g" "$b"
+    restore_idle_led "$ip" "$original_state"
 }
 
 #===============================================================================

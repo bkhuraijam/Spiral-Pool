@@ -1027,6 +1027,10 @@ DEFAULT_CONFIG = {
     "monthly_report_day": 1,
     "quiet_hours_start": 22,
     "quiet_hours_end": 6,
+    # Read by block-celebrate.sh, not by Sentinel: what a miner's LED shows when no
+    # celebration is running. "off" = dark between blocks; "restore" = put back
+    # whatever the LED showed before the celebration started.
+    "led_idle_state": "off",
     "miner_offline_threshold_min": 10,
     "temp_warning": 75,
     "temp_critical": 85,
