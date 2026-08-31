@@ -56,7 +56,68 @@ MESKONE0722 — https://github.com/MESKONE0722/Spiral-Pool
 
 ---
 
+## Field Reports
+
+Contributors who did not submit code, but whose diagnostic work located a
+defect precisely enough to fix it.
+
+Pencreus — https://github.com/Pencreus
+  - v2.7.1 (issue #19): connectedMiners and poolEffort both reporting 0 for a coin served
+    only through the Multi coin smart port, while that coin was the active
+    rotation slot and genuinely accepting shares. The report carried per-coin
+    API payloads from either side of a TIME-mode rotation switch, an
+    accepted-shares delta across two calls proving submission was live, and a
+    ruled-out list that eliminated frontend, caching and stale-session causes
+    before triage started. It also isolated the one structural difference
+    between an affected and an unaffected coin, which is what made the real
+    variable findable. (See v2.7.1 provenance note below for where that
+    hypothesis landed.)
+  - Same user-visible symptom as issue #6 (kamakhu, v2.5.x), which was fixed by
+    introducing MultiPortSessionProvider. That mechanism was correct; v2.7.1
+    fixes a path where it was never attached. Two defects, one symptom.
+
+---
+
 ## Provenance Notes by Release
+
+v2.7.1 (Spiral Citadel) — reporting and celebration release
+  - All code in this release is original to this repository. No upstream work
+    was ported.
+  - The Avalon LED celebration defects and the Sentinel auto-restart cooldown
+    fix were found in-house, not from a field report. The LED work began with
+    the operator's own observation of an Avalon showing plain white through a
+    live block celebration; the six defects behind it, and the seventh in the
+    dashboard's manual test endpoint, were found by auditing that path. The
+    auto-restart cooldown defect — a restart timestamp recorded only on success,
+    so an un-restartable miner was retried every monitor cycle — was found in
+    the same audit and is unrelated to any reported symptom.
+  - The ZMQ alerting defect — a Prometheus gauge registered and exported but
+    never written, so Sentinel raised a false "ZMQ CONNECTION LOST" on every
+    start and then latched, masking the real thing — was found by the operator
+    reporting that alert on a healthy pool, and traced from there. No external
+    reporter.
+  - The celebration LED defects were found from live cgminer API output during
+    that investigation: an Avalon Nano3s answering Code=14 to the plain-text
+    "version" and "stats" the discovery probe and LED reader send, while
+    answering the JSON form and accepting ledset normally. The operator's own
+    celebrate.log supplied the proof, and corrected a wrong first diagnosis:
+    the LED was not stranded by a host dying mid-celebration, as initially
+    concluded, but by a celebration that ended cleanly with no saved state to
+    restore. The dark-when-idle behaviour was requested by the operator.
+    No external reporter.
+  - The test-endpoint, auto-restart, ZMQ alerting and celebration LED fixes
+    were applied in place on this tag after the release commit, and are
+    recorded in the changelog under this version rather than a new one, per the
+    project's patch-in-place policy.
+  - The per-coin statistics defects were located from a field report by
+    Pencreus, credited above. The reported correlation (only coins that had
+    never taken a dedicated-port connection were affected) turned out to be
+    confounded rather than causal, but the evidence supplied was what allowed
+    the real predictor, daemon readiness at smart-port startup, to be
+    identified and separated from it.
+  - The report was reviewed for personal information before being acted on.
+    The API payloads it included carry pool-level statistics only: no wallet
+    addresses, worker names or network addresses were present.
 
 v2.7.0 (Spiral Citadel) — Bitcoin chain-identity release
   - The BIP-110 / RDTS chain-split remediation that this release is named for

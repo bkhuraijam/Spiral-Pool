@@ -90,6 +90,13 @@ func (s ZMQStatus) String() string {
 	}
 }
 
+// IsConnected reports whether the ZMQ subscriber socket is up. Connecting counts:
+// the socket is open, it just has not seen its first message yet. Degraded and
+// Failed do not — those are surfaced separately by the health status metric.
+func (s ZMQStatus) IsConnected() bool {
+	return s == ZMQStatusHealthy || s == ZMQStatusConnecting
+}
+
 // ZMQListener listens for block notifications via ZMQ with automatic fallback to RPC polling.
 // Uses ZeroMQ's SUB socket to receive instant notifications when
 // DigiByte Core mines or receives a new block.

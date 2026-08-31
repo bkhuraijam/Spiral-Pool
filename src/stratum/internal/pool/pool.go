@@ -1288,9 +1288,10 @@ func (p *Pool) setupCallbacks() {
 			p.logger.Infow("ZMQ status update",
 				"status", status.String(),
 			)
-			// Update Prometheus metric for Sentinel monitoring
+			// Update Prometheus metrics for Sentinel monitoring
 			if p.metricsServer != nil {
 				p.metricsServer.SetZMQHealthStatus(int(status))
+				p.metricsServer.SetZMQConnected(status.IsConnected())
 			}
 		})
 

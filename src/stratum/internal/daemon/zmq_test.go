@@ -70,6 +70,31 @@ func TestZMQStatusStrings(t *testing.T) {
 	}
 }
 
+// TestZMQStatusIsConnected verifies which states count as a live socket for the
+// stratum_zmq_connected gauge. Connecting must count: the socket is open, it has
+// just not seen its first block notification yet. Treating it as disconnected fired
+// a false "ZMQ CONNECTION LOST" alert on every restart.
+func TestZMQStatusIsConnected(t *testing.T) {
+	tests := []struct {
+		status ZMQStatus
+		want   bool
+	}{
+		{ZMQStatusDisabled, false},
+		{ZMQStatusConnecting, true},
+		{ZMQStatusHealthy, true},
+		{ZMQStatusDegraded, false},
+		{ZMQStatusFailed, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status.String(), func(t *testing.T) {
+			if got := tt.status.IsConnected(); got != tt.want {
+				t.Errorf("ZMQStatus(%s).IsConnected() = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestDefaultZMQTimingConstants verifies default timing values.
 func TestDefaultZMQTimingConstants(t *testing.T) {
 	// Reconnect initial delay
