@@ -697,3 +697,34 @@ coins:
       coingecko_id: null
       explorer_url: null
 
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  - symbol: DVT
+    name: DeVault
+    algorithm: sha256d
+    role: standalone
+    network:
+      rpc_port: 3339
+      p2p_port: 33039
+      zmq_port: 28339
+    mining:
+      stratum_port: 19400        # VERIFY unused!
+      stratum_v2_port: 19401
+      stratum_tls_port: 19402
+    address:
+      p2pkh_version: 0x00
+      p2sh_version: 0x05
+      # DVT uses CashAddr format with prefix 'devault:' (not bech32)
+      supports_cashaddr: true
+    chain:
+      genesis_hash: "0000000038e62464371566f6a8d35c01aa54a7da351b2dbf85d92f30357f3a90"
+      block_time: 120
+      coinbase_maturity: 100
+      supports_segwit: false
+      min_coinbase_script_len: 2
+    display:
+      full_name: "DeVault"
+      short_name: "DVT"
+      coingecko_id: "devault"
+      explorer_url: "https://exploredvt.com"
+

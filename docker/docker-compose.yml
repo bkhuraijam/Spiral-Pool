@@ -182,6 +182,46 @@ services:
       retries: 5
       start_period: 300s
 
+  # DeVault (DVT) - SHA-256d
+  devault:
+    profiles: ["dvt"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.devault
+    container_name: spiralpool-devault
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - spiralpool
+    ports:
+      - "33039:33039"            # P2P
+      - "127.0.0.1:3339:3339"    # RPC — localhost only
+      - "127.0.0.1:28339:28339"  # ZMQ
+    environment:
+      - RPC_USER=${DVT_RPC_USER:-spiraldvt}
+      - RPC_PASSWORD=${DVT_RPC_PASSWORD:?DVT_RPC_PASSWORD must be set}
+      - ZMQ_PORT=28339
+    volumes:
+      - ${DVT_DATA_DIR:-devault-data}:/home/devault/.devault
+      - ./config/devault.conf.template:/config/devault.conf.template:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          memory: 1G
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test: ["CMD", "devault-cli", "-conf=/home/devault/.devault/devault.conf", "getblockchaininfo"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   # Bitcoin Cash (BCH) - SHA-256d
   # NOTE: no-new-privileges NOT set - gosu requires setuid for privilege drop
   bitcoincash:

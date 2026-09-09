@@ -1,0 +1,37 @@
+# DeVault Core Configuration for Spiral Pool
+# This template is processed at container startup
+
+server=1
+daemon=0
+printtoconsole=1
+listen=1
+port=33039
+
+# RPC
+rpcuser=${RPC_USER}
+rpcpassword=${RPC_PASSWORD}
+rpcallowip=127.0.0.1
+rpcallowip=172.16.0.0/12
+rpcallowip=10.0.0.0/8
+rpcallowip=192.168.0.0/16
+rpcbind=0.0.0.0
+rpcport=3339
+
+# ZMQ block notifications for the pool
+zmqpubhashblock=tcp://0.0.0.0:${ZMQ_PORT}
+zmqpubrawblock=tcp://0.0.0.0:${ZMQ_PORT}
+zmqpubhashtx=tcp://0.0.0.0:${ZMQ_PORT}
+zmqpubrawtx=tcp://0.0.0.0:${ZMQ_PORT}
+
+# Chain state
+txindex=
+prune=1024
+dbcache=1024
+maxconnections=64
+
+# RPC performance for mining
+rpcworkqueue=64
+rpcthreads=8
+
+# Mining (50% of the 32MB limit)
+blockmaxsize=16000000
