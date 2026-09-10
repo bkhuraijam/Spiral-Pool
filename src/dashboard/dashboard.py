@@ -827,7 +827,7 @@ def safe_error_response(error: Exception, error_type: str = "internal", log_full
 # Must match frontend coinInfo/allCoins/validCoins arrays in setup.html
 VALID_COINS = {
     # SHA-256d coins
-    'BC2', 'BCH', 'BCH2', 'BTC', 'BTCS', 'DGB', 'FBTC', 'NMC', 'SYS', 'XEC', 'XMY',
+    'BC2', 'BCH', 'BCH2', 'BTC', 'BTCS', 'DGB', 'DVT', 'FBTC', 'NMC', 'SYS', 'XEC', 'XMY',
     # Scrypt coins
     'CAT', 'DGB-SCRYPT', 'DOGE', 'LTC', 'PEP'
 }
@@ -1964,7 +1964,8 @@ def fetch_pool_stats():
             "syscoin": "SYS", "sys": "SYS",
             "myriadcoin": "XMY", "myriad": "XMY", "xmy": "XMY",
             "fractalbitcoin": "FBTC", "fractal": "FBTC", "fbtc": "FBTC",
-                        "ecash": "XEC", "xec": "XEC",
+            "devault": "DVT", "dvt": "DVT",
+            "ecash": "XEC", "xec": "XEC",
         }
 
         # Build per-coin block counts and last-block info from fetched blocks
@@ -2515,7 +2516,7 @@ def load_stratum_ports_from_config():
                         'NAMECOIN': 'NMC', 'NMC': 'NMC',
                         'SYSCOIN': 'SYS', 'SYS': 'SYS',
                         'MYRIADCOIN': 'XMY', 'MYRIAD': 'XMY', 'XMY': 'XMY',
-                        'FRACTALBITCOIN': 'FBTC', 'FRACTAL-BITCOIN': 'FBTC', 'FBTC': 'FBTC',
+                        'FRACTALBITCOIN': 'FBTC', 'FRACTAL-BITCOIN': 'FBTC', 'FBTC': 'FBTC', 'DEVAULT': 'DVT', 'DVT': 'DVT',
                                                 'PEPECOIN': 'PEP', 'PEP': 'PEP',
                         'CATCOIN': 'CAT', 'CAT': 'CAT'
                     }
@@ -2591,6 +2592,11 @@ def load_pool_config():
             "conf_path": "/spiralpool/xmy/myriadcoin.conf",
             "default_port": 10889,
             "name": "Myriad"
+        },
+        "DVT": {
+            "conf_path": "/spiralpool/dvt/devault.conf",
+            "default_port": 3339,
+            "name": "DeVault"
         },
         "FBTC": {
             "conf_path": "/spiralpool/fbtc/fractal.conf",
@@ -2749,7 +2755,7 @@ def load_pool_config():
                         8336: "NMC",   # Namecoin RPC
                         8370: "SYS",   # Syscoin RPC
                         10889: "XMY",  # Myriadcoin RPC
-                        8340: "FBTC",  # Fractal Bitcoin RPC
+                        8340: "FBTC", 3339: "DVT",  # Fractal Bitcoin RPC
                                                 9004: "XEC",   # eCash RPC
                     }
                     detected_coin = PORT_TO_COIN.get(daemon_port)
@@ -3032,6 +3038,23 @@ MULTI_COIN_NODES = {
         "merge_mining": None,  # Standalone
         "enabled": False
     },
+    # DeVault - SHA-256d solo-minable coin (120-second blocks)
+    "DVT": {
+        "name": "DeVault",
+        "symbol": "DVT",
+        "algorithm": "sha256d",
+        "rpc_host": "127.0.0.1",
+        "rpc_port": 3339,
+        "rpc_user": "",
+        "rpc_password": "",
+        "data_dir": "/spiralpool/dvt",
+        "config_file": "/spiralpool/dvt/devault.conf",
+        "service_name": "devaultd",
+        "stratum_ports": {"v1": 19400, "v2": 19401, "tls": 19402},
+        "block_time": 120,  # 2 minutes
+        "merge_mining": None,  # Standalone
+        "enabled": True  # DVT is actively running on kamakhu
+    },
     # === Scrypt Coins ===
     # Catcoin - first cat-themed memecoin
     "CAT": {
@@ -3162,6 +3185,7 @@ COINGECKO_IDS = {
     "SYS": "syscoin",    # Syscoin - UTXO platform with AuxPoW
     "XMY": "myriadcoin", # Myriad - Multi-algo coin
     "FBTC": "fractal-bitcoin",  # Fractal Bitcoin - Bitcoin scaling with AuxPoW
+    "DVT": "devault",    # DeVault - CoinGecko ID
         "XEC": "ecash",  # eCash (Bitcoin ABC) - listed on CoinGecko as "ecash"
     # Scrypt coins
     "LTC": "litecoin",
@@ -3452,6 +3476,7 @@ COIN_BLOCK_REWARDS = {
     "SYS": 1.25,        # Syscoin block reward (approximate current)
     "XMY": 500,         # Myriad block reward per algo (approximate)
     "FBTC": 25,         # Fractal Bitcoin block reward (25 FB per block)
+    "DVT": 50,          # DeVault block reward (50 DVT per block)
         "XEC": 3125000,     # eCash block reward (3,125,000 XEC; note: 1 XEC = 1e-8 BCH denomination)
     # Scrypt coins
     "LTC": 6.25,        # Litecoin block reward after 2023 halving
@@ -3475,6 +3500,7 @@ COIN_BLOCK_TIMES = {
     "SYS": 60,          # Syscoin 1-minute blocks
     "XMY": 60,          # Myriad 1-minute blocks per algo
     "FBTC": 30,         # Fractal Bitcoin 30-second blocks (NOT 600 like Bitcoin!)
+    "DVT": 120,         # DeVault 2-minute blocks
         "XEC": 600,         # eCash 10-minute blocks (same as Bitcoin)
     # Scrypt coins
     "LTC": 150,         # Litecoin 2.5-minute blocks
@@ -9990,7 +10016,7 @@ def index():
     pool_ids = [
         # SHA-256d
         'btc_sha256_1', 'bch_sha256_1', 'bch2_sha256_1', 'bc2_sha256_1',
-        'btcs_sha256_1', 'dgb_sha256_1', 'fbtc_sha256_1', 'nmc_sha256_1',
+        'btcs_sha256_1', 'dgb_sha256_1', 'fbtc_sha256_1', 'dvt_sha256_1', 'nmc_sha256_1',
         'sys_sha256_1', 'xec_sha256_1', 'xmy_sha256_1',
         # Scrypt
         'cat_scrypt_1', 'dgb_scrypt_1', 'doge_scrypt_1', 'ltc_scrypt_1',
@@ -10091,7 +10117,7 @@ def get_server_mode():
     VALID_COINS = {
         # Standard symbols
         "DGB", "BTC", "BCH", "BCH2", "BC2", "BTCS", "LTC", "DOGE", "DGB-SCRYPT",
-        "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC",
+        "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC", "DVT",
         # Full names
         "DIGIBYTE", "BITCOIN", "BITCOINCASH", "BITCOIN-CASH",
         "BITCOINCASHII", "BITCOIN-CASH-II",
@@ -10100,7 +10126,7 @@ def get_server_mode():
         "LITECOIN", "DOGECOIN", "DIGIBYTE-SCRYPT",
         "PEPECOIN", "CATCOIN",
         "NAMECOIN", "SYSCOIN", "MYRIADCOIN", "MYRIAD",
-        "FRACTALBITCOIN", "FRACTAL",
+        "FRACTALBITCOIN", "FRACTAL", "DEVAULT",
                 "ECASH", "BITCOIN-ABC"
     }
 
@@ -10124,6 +10150,7 @@ def get_server_mode():
             "SYSCOIN": "SYS", "SYS": "SYS",
             "MYRIADCOIN": "XMY", "MYRIAD": "XMY", "XMY": "XMY",
             "FRACTALBITCOIN": "FBTC", "FRACTAL": "FBTC", "FBTC": "FBTC",
+            "DEVAULT": "DVT", "DVT": "DVT",
             "ECASH": "XEC", "BITCOIN-ABC": "XEC", "XEC": "XEC",
         }
         return coin_map.get(coin_type, coin_type)
@@ -10170,7 +10197,7 @@ def get_server_mode():
         coins_config = []
         pool_addresses = {}
         merge_mining_info = None
-        COIN_WHITELIST = {"DGB", "BTC", "BCH", "BCH2", "BC2", "BTCS", "LTC", "DOGE", "DGB-SCRYPT", "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC"}
+        COIN_WHITELIST = {"DGB", "BTC", "BCH", "BCH2", "BC2", "BTCS", "LTC", "DOGE", "DGB-SCRYPT", "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC", "DVT"}
 
         for pool in pools:
             if not isinstance(pool, dict):
@@ -10278,7 +10305,7 @@ def get_server_mode():
         fallback_config = []
         fallback_merge = None
         COIN_WHITELIST = {"DGB", "BTC", "BCH", "BCH2", "BC2", "BTCS", "LTC", "DOGE", "DGB-SCRYPT",
-                          "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC"}
+                          "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC", "DVT"}
         for symbol, node in MULTI_COIN_NODES.items():
             if node.get('enabled', False) and symbol in COIN_WHITELIST:
                 fallback_coins.append(symbol)
@@ -11056,6 +11083,7 @@ WORKER_STATS_POOL_MAP = {
     'btcs_sha256_1': 'BTCS',
     'dgb_sha256_1':  'DGB',
     'fbtc_sha256_1': 'FBTC',
+    'dvt_sha256_1':  'DVT',
     'nmc_sha256_1':  'NMC',
         'sys_sha256_1':  'SYS',
     'xec_sha256_1':  'XEC',
@@ -14710,14 +14738,14 @@ def get_stratum_address():
     # SECURITY: Uses global VALID_COINS and validate_wallet_address() for proper validation
     # Extended whitelist includes long-form names that get normalized to standard symbols
     VALID_COIN_TYPES_EXTENDED = {"DGB", "BTC", "BCH", "BCH2", "BC2", "BTCS", "LTC", "DOGE", "DGB-SCRYPT",
-                                  "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC",
+                                  "PEP", "CAT", "NMC", "SYS", "XMY", "FBTC", "XEC", "DVT",
                                   "DIGIBYTE", "BITCOIN", "BITCOINCASH", "BITCOIN-CASH",
                                   "BITCOINCASHII", "BITCOIN-CASH-II",
                                   "BITCOINII", "BITCOIN-II", "BITCOIN2", "BC2",
                                   "BITCOINSILVER", "BITCOIN-SILVER",
                                   "LITECOIN", "DOGECOIN", "DIGIBYTE-SCRYPT",
                                   "PEPECOIN", "CATCOIN",
-                                  "NAMECOIN", "SYSCOIN", "MYRIADCOIN", "FRACTALBITCOIN", "FRACTAL",
+                                  "NAMECOIN", "SYSCOIN", "MYRIADCOIN", "FRACTALBITCOIN", "FRACTAL", "DEVAULT",
                                   "ECASH", "BITCOIN-ABC"}
 
     wallet_addresses = {}

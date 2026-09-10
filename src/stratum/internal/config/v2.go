@@ -634,7 +634,7 @@ func (c *ConfigV2) Validate() error {
 		coinName := symbolToCoinName(coin.Symbol)
 		if _, ok := SupportedCoins[coinName]; !ok {
 			return fmt.Errorf("coins[%d]: unknown symbol '%s'. Supported: BTC, BCH, BCH2, BC2, BTCS, DGB, DGB-SCRYPT, "+
-				"LTC, DOGE, PEP, CAT, NMC, XMY, FBTC, XEC (SYS is merge-mining only via BTC parent)", i, coin.Symbol)
+				"LTC, DOGE, PEP, CAT, NMC, XMY, FBTC, XEC, DVT (SYS is merge-mining only via BTC parent)", i, coin.Symbol)
 		}
 	}
 
@@ -1008,7 +1008,7 @@ func (c *ConfigV2) SetDefaults() {
 				"sys":        "syscoin",
 				"xmy":        "myriadcoin",
 				"fbtc":       "fractalbitcoin",
-				"xec":        "ecash",
+				"xec":        "ecash", "dvt":        "devault",
 			}
 			coinName := symbolToCoin[coinSymbol]
 			if coinName == "" {
@@ -1079,7 +1079,7 @@ func (c *ConfigV2) SetDefaults() {
 				"sys":        "syscoin",
 				"xmy":        "myriadcoin",
 				"fbtc":       "fractalbitcoin",
-				"xec":        "ecash",
+				"xec":        "ecash", "dvt":        "devault",
 			}
 			coinName := symbolToCoin[coinSymbol]
 			if coinName == "" {
@@ -1241,7 +1241,9 @@ func getBlockTimeForCoin(symbol string) int {
 	case "":
 		return 600 // 10 minute blocks
 	case "XEC", "ECASH":
-		return 600 // 10 minute blocks (like Bitcoin)
+                return 600 // 10 minute blocks (like Bitcoin)
+        case "DVT", "DEVAULT":
+		return 120 // 2 minute blocks (like Bitcoin)
 	default:
 		return 600 // Default to Bitcoin-like 10 minute blocks
 	}
@@ -1351,7 +1353,7 @@ func symbolToCoinName(symbol string) string {
 		"BTC": "bitcoin", "BCH": "bitcoincash", "BCH2": "bitcoincashii", "BC2": "bitcoinii", "BTCS": "bitcoinsilver",
 		"LTC": "litecoin", "DOGE": "dogecoin", "PEP": "pepecoin",
 		"CAT": "catcoin", "NMC": "namecoin", "SYS": "syscoin",
-		"XMY": "myriadcoin", "FBTC": "fractalbitcoin", "XEC": "ecash",
+		"XMY": "myriadcoin", "FBTC": "fractalbitcoin", "XEC": "ecash", "DVT": "devault",
 	}
 	if name, ok := m[strings.ToUpper(symbol)]; ok {
 		return name
@@ -1393,6 +1395,8 @@ func getDefaultPortForCoin(symbol string) int {
 		return 8340 // FIX: Was 8341 (P2P port). RPC port is 8340.
 	case "XEC", "ECASH":
 		return 9004
+        case "DVT", "DEVAULT":
+                return 3339
 	default:
 		return 8332
 	}

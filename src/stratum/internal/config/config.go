@@ -558,6 +558,15 @@ var SupportedCoins = map[string]CoinInfo{
 		AddressPrefix: []byte{0x00},
 		BlockTime:     600,
 	},
+        "devault": {
+                Name:          "DeVault",
+                Symbol:        "DVT",
+                Algorithm:     "sha256d",
+                DefaultPort:   3339,
+                P2PPort:       33039,
+                AddressPrefix: []byte{0x00},
+                BlockTime:     120,
+        },
 	// Bitcoin Cash II (BCH2) - BCH consensus fork, CashAddr addressing (bitcoincashii: prefix)
 	// CRITICAL: BCH2 legacy address bytes are identical to BCH/BTC; use CashAddr to distinguish
 	"bitcoincashii": {
