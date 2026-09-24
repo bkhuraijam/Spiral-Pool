@@ -892,6 +892,7 @@ services:
       - "5334:5334"     # BCH Stratum V2 (Noise)
       - "5335:5335"     # BCH Stratum TLS
       - "16180:16180"   # Smart Multi Stratum V1
+      - "19400:19400"   # DVT 
       - "6333:6333"     # BC2 Stratum V1
       - "6334:6334"     # BC2 Stratum V2 (Noise)
       - "6335:6335"     # BC2 Stratum TLS

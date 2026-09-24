@@ -22,7 +22,7 @@ LABEL version="0.3.0"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-ARG FBTC_VERSION=0.3.0
+ARG FBTC_VERSION=0.4.0
 
 # Install dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
