@@ -409,7 +409,7 @@ download_extract() {
 
 test_dgb() {
     local coin="dgb"
-    local url="https://github.com/DigiByte-Core/digibyte/releases/download/v9.26.5/digibyte-9.26.5-${ARCH_SUFFIX}.tar.gz"
+    local url="https://github.com/DigiByte-Core/digibyte/releases/download/v9.26.6/digibyte-9.26.6-${ARCH_SUFFIX}.tar.gz"
     local rpc_user="spiraldgb"
     local rpc_pass=$(gen_rpc_pass)
     local rpc_port=14022
@@ -605,7 +605,7 @@ EOF
 
 test_bch() {
     local coin="bch"
-    local url="https://github.com/bitcoin-cash-node/bitcoin-cash-node/releases/download/v29.1.0/bitcoin-cash-node-29.1.0-${ARCH_SUFFIX}.tar.gz"
+    local url="https://github.com/bitcoin-cash-node/bitcoin-cash-node/releases/download/v29.2.0/bitcoin-cash-node-29.2.0-${ARCH_SUFFIX}.tar.gz"
     local rpc_user="spiralbch"
     local rpc_pass=$(gen_rpc_pass)
     local rpc_port=8432
@@ -675,7 +675,8 @@ logips=1
 shrinkdebugfile=1
 
 # === BCH-SPECIFIC SETTINGS ===
-excessiveblocksize=32000000
+# No excessiveblocksize: BCHN 29.2.0 removed it (ABLA sets the limit) and
+# refuses to start with it present. 32 MB was already the default.
 
 # === ASSUME VALID ===
 assumevalid=000000000000000000982e811b14b1fe425553fc1b437a34caddea0d70ec6508
@@ -1086,7 +1087,7 @@ EOF
 
 test_xec() {
     local coin="xec"
-    local url="https://github.com/Bitcoin-ABC/bitcoin-abc/releases/download/v0.33.12/bitcoin-abc-0.33.12-${ARCH_SUFFIX}.tar.gz"
+    local url="https://github.com/Bitcoin-ABC/bitcoin-abc/releases/download/v0.34.0/bitcoin-abc-0.34.0-${ARCH_SUFFIX}.tar.gz"
     local rpc_user="spiralxec"
     local rpc_pass=$(gen_rpc_pass)
     local rpc_port=9004
