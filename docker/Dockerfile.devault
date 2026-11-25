@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Spiral Pool - DeVault (DVT) Node
+# No official release binaries exist: multi-stage build from source.
+FROM ubuntu:24.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+# PIN THIS to a full commit hash for reproducible builds:
+#   git ls-remote https://github.com/devaultcrypto/devault HEAD
+ARG DVT_COMMIT=master
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build git pkg-config \
+      libboost-all-dev libevent-dev libzmq3-dev libssl-dev \
+      libdb++-dev libgmp-dev libexpat1-dev zlib1g-dev libsqlite3-dev \
+      python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --recursive https://github.com/devaultcrypto/devault.git \
+    && cd devault && git checkout ${DVT_COMMIT}
+
+WORKDIR /src/devault
+RUN mkdir -p build && cd build \
+    && cmake -GNinja .. \
+       -DBUILD_BITCOIN_QT=OFF \
+       -DBUILD_BITCOIN_WALLET=ON \
+       -DENABLE_UPNP=OFF \
+       -DENABLE_NATPMP=OFF \
+       -DENABLE_MAN=OFF \
+    && ninja devaultd devault-cli
+
+# ── Runtime stage ────────────────────────────────────────────────
+FROM ubuntu:24.04
+
+LABEL maintainer="Spiral Miner"
+LABEL description="DeVault Node for Spiral Pool"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Runtime shared libraries required by devaultd
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libevent-2.1-7t64 libevent-pthreads-2.1-7t64 libevent-extra-2.1-7t64 \
+      libzmq5 libgmp10 libboost-filesystem1.83.0 libsqlite3-0 \
+      gosu curl ca-certificates \
+    && (apt-get install -y libdb5.3++t64 || apt-get install -y libdb5.3++) \
+    && (apt-get install -y libgmpxx4t64 || apt-get install -y libgmpxx4ldbl) \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/devault/build/src/devaultd    /usr/local/bin/
+COPY --from=build /src/devault/build/src/devault-cli /usr/local/bin/
+COPY docker/config/entrypoint-devault.sh /entrypoint.sh
+
+# Fail the build NOW if any shared library is missing (instead of at runtime)
+RUN ldd /usr/local/bin/devaultd | grep "not found" && exit 1 || echo "All shared libraries present"
+
+RUN useradd -m -s /bin/bash devault \
+    && mkdir -p /home/devault/.devault \
+    && chown -R devault:devault /home/devault \
+    && chmod +x /entrypoint.sh
+
+VOLUME ["/home/devault/.devault"]
+EXPOSE 33039 3339
+
+ENTRYPOINT ["/entrypoint.sh"]
